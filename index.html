@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Galaxy Fighter</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="hud">
+      <div id="score">Pontos: 0</div>
+      <div id="lives">Vidas: ❤️❤️❤️</div>
+    </div>
+
+    <div id="startScreen" class="overlay">
+      <h1>🚀 GALAXY FIGHTER</h1>
+      <p>Arraste ou use as setas para mover a nave.<br>
+         Toque na nave (ou pressione espaço) para atirar!<br>
+         Destrua os inimigos antes que eles te atinjam.</p>
+      <button id="startBtn">Iniciar Jogo</button>
+    </div>
+
+    <div id="gameOverScreen" class="overlay hidden">
+      <h1>💥 FIM DE JOGO</h1>
+      <p id="finalScore">Pontuação final: 0</p>
+      <button id="restartBtn">Jogar Novamente</button>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
