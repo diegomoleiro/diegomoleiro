@@ -127,3 +127,124 @@ canvas {
 .overlay button:active {
   transform: scale(0.94);
 }
+
+.grade-select {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 280px;
+}
+
+.grade-select label {
+  font-size: 13px;
+  color: #baf5ff;
+}
+
+.grade-select select {
+  padding: 10px 12px;
+  font-size: 15px;
+  border-radius: 10px;
+  border: 2px solid #2b8bb0;
+  background: rgba(0, 20, 30, 0.85);
+  color: #fff;
+}
+
+.grade-select select.invalid {
+  border-color: #ff5c5c;
+}
+
+#quizProgress {
+  font-size: 13px;
+  color: #ffd23f;
+}
+
+#quizQuestion {
+  font-size: 17px;
+  font-weight: bold;
+  color: #fff;
+}
+
+.quiz-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 320px;
+}
+
+#quizOptions button {
+  padding: 12px 16px;
+  font-size: 15px;
+  font-weight: normal;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid #2b8bb0;
+  border-radius: 12px;
+  cursor: pointer;
+  box-shadow: none;
+  transition: transform 0.1s ease, background 0.2s ease;
+}
+
+#quizOptions button:active {
+  transform: scale(0.97);
+}
+
+#quizOptions button:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+#quizOptions button.correct {
+  background: #1f8a3d;
+  border-color: #2ecc71;
+}
+
+#quizOptions button.wrong {
+  background: #8a1f1f;
+  border-color: #e74c3c;
+}
+
+#quizFeedback {
+  min-height: 20px;
+  font-size: 15px;
+  font-weight: bold;
+  color: #ffd23f;
+}
+
+.ability-cards {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 360px;
+}
+
+.ability-card {
+  width: 150px;
+  padding: 16px 12px;
+  border-radius: 14px;
+  border: 2px solid #ffb347;
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  text-align: center;
+  transition: transform 0.1s ease, background 0.2s ease;
+}
+
+.ability-card:active {
+  transform: scale(0.95);
+}
+
+.ability-card h3 {
+  font-size: 15px;
+  color: #ffd23f;
+  margin-bottom: 6px;
+  text-shadow: none;
+}
+
+.ability-card p {
+  font-size: 12px;
+  color: #cdeeff;
+  max-width: none;
+  line-height: 1.4;
+}

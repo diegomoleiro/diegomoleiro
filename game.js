@@ -13,10 +13,20 @@
   const finalScoreEl = document.getElementById('finalScore');
   const startBtn = document.getElementById('startBtn');
   const restartBtn = document.getElementById('restartBtn');
+  const gradeSelect = document.getElementById('gradeSelect');
+  const quizScreen = document.getElementById('quizScreen');
+  const quizTitle = document.getElementById('quizTitle');
+  const quizProgress = document.getElementById('quizProgress');
+  const quizQuestion = document.getElementById('quizQuestion');
+  const quizOptions = document.getElementById('quizOptions');
+  const quizFeedback = document.getElementById('quizFeedback');
+  const abilityScreen = document.getElementById('abilityScreen');
+  const abilityCards = document.getElementById('abilityCards');
 
   let W = 0, H = 0, DPR = 1;
   const GROUND_MARGIN = 20;
   const PATCH_GROWTH_TIME = 14;
+  const BASE_SPEED = 380;
 
   const fieldCanvas = document.createElement('canvas');
   const fieldCtx = fieldCanvas.getContext('2d');
@@ -36,13 +46,15 @@
   window.addEventListener('resize', resize);
 
   // ---------- Game state ----------
-  const STATE = { MENU: 'menu', PLAYING: 'playing', OVER: 'over' };
+  const STATE = { MENU: 'menu', PLAYING: 'playing', ABILITY: 'ability', QUIZ: 'quiz', OVER: 'over' };
   let state = STATE.MENU;
+  let schoolGrade = null;
+  let gradeTier = 'inicial';
 
   const player = {
     w: 58, h: 44,
     x: 0, y: 0,
-    speed: 380,
+    speed: BASE_SPEED,
     tilt: 0,
     fireCooldown: 0,
     fireRate: 0.22,
@@ -52,6 +64,7 @@
     maxAmmo: 30,
     slowTimer: 0,
     slowFx: 0,
+    shotPattern: 'single',
   };
 
   let score = 0;
@@ -60,6 +73,7 @@
   let enemies = [];        // crows
   let grasshoppers = [];   // agile pests
   let hearts = [];         // extra-life pickups
+  let gifts = [];          // mystery bonus-question pickups
   let patches = [];        // side corn plots to harvest for ammo
   let particles = [];
   let clouds = [];
@@ -69,6 +83,7 @@
   let enemyDir = 1;
   let enemyDropTimer = 0;
   let grasshopperSpawnTimer = 4;
+  let giftSpawnTimer = 18;
   let elapsed = 0;
 
   let keys = { left: false, right: false, up: false, down: false, fire: false };
@@ -76,8 +91,279 @@
   let pointerX = null;
   let pointerY = null;
 
+  // ---------- Ability system ----------
+  const ABILITIES = [
+    {
+      id: 'life', icon: '❤️', name: 'Vida Extra',
+      desc: 'Ganhe +1 coração de vida.',
+      apply: () => { player.lives += 1; },
+    },
+    {
+      id: 'agility', icon: '⚡', name: 'Mais Agilidade',
+      desc: 'A colheitadeira fica mais rápida.',
+      apply: () => { player.speed *= 1.18; },
+    },
+    {
+      id: 'double', icon: '🌽🌽', name: 'Tiro Duplo',
+      desc: 'Atira 2 grãos retos ao mesmo tempo.',
+      apply: () => { player.shotPattern = 'double'; },
+    },
+    {
+      id: 'tripleDiag', icon: '↖️🌽↗️', name: 'Tiro Triplo Diagonal',
+      desc: 'Atira 3 grãos: um reto e dois na diagonal.',
+      apply: () => { player.shotPattern = 'tripleDiagonal'; },
+    },
+    {
+      id: 'tripleStraight', icon: '🌽🌽🌽', name: 'Tiro Triplo Reto',
+      desc: 'Atira 3 grãos retos ao mesmo tempo.',
+      apply: () => { player.shotPattern = 'tripleStraight'; },
+    },
+  ];
+
+  function shotCost() {
+    if (player.shotPattern === 'double') return 2;
+    if (player.shotPattern === 'tripleStraight' || player.shotPattern === 'tripleDiagonal') return 3;
+    return 1;
+  }
+
+  function openAbilitySelection() {
+    state = STATE.ABILITY;
+    const pool = [...ABILITIES];
+    const first = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
+    const second = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
+    abilityCards.innerHTML = '';
+    [first, second].forEach(ab => {
+      const card = document.createElement('div');
+      card.className = 'ability-card';
+      card.innerHTML = `<h3>${ab.icon}</h3><h3>${ab.name}</h3><p>${ab.desc}</p>`;
+      card.addEventListener('click', () => chooseAbility(ab));
+      abilityCards.appendChild(card);
+    });
+    abilityScreen.classList.remove('hidden');
+  }
+
+  function chooseAbility(ab) {
+    ab.apply();
+    updateHud();
+    abilityScreen.classList.add('hidden');
+    advanceWave();
+    state = STATE.PLAYING;
+  }
+
+  function advanceWave() {
+    wave += 1;
+    const newPhase = phaseForWave(wave);
+    if (newPhase !== phase) {
+      phase = newPhase;
+      phaseBannerTimer = 2.6;
+      spawnPhaseHearts();
+    }
+    buildWave();
+  }
+
+  // ---------- School quiz system ----------
+  const QUESTION_BANK = {
+    inicial: {
+      normal: [
+        { q: 'Quanto é 4 + 5?', options: ['7', '9', '10', '8'], correct: 1 },
+        { q: 'Quanto é 10 - 3?', options: ['6', '7', '8', '5'], correct: 1 },
+        { q: 'Qual destas palavras é um substantivo?', options: ['Correr', 'Bonito', 'Cachorro', 'Rapidamente'], correct: 2 },
+        { q: 'Quantas patas tem um cachorro?', options: ['2', '4', '6', '8'], correct: 1 },
+        { q: 'Quanto é 3 x 3?', options: ['6', '9', '12', '3'], correct: 1 },
+        { q: 'O que as plantas precisam para crescer?', options: ['Só água', 'Água, luz e ar', 'Só terra', 'Só luz'], correct: 1 },
+        { q: 'Qual é o plural de "flor"?', options: ['Flors', 'Floris', 'Flores', 'Flor'], correct: 2 },
+        { q: 'Em que planeta nós vivemos?', options: ['Marte', 'Terra', 'Lua', 'Sol'], correct: 1 },
+      ],
+      hard: [
+        { q: 'Quanto é 7 x 8?', options: ['54', '56', '64', '48'], correct: 1 },
+        { q: 'Qual é o antônimo de "grande"?', options: ['Enorme', 'Gigante', 'Pequeno', 'Alto'], correct: 2 },
+        { q: 'Qual órgão bombeia o sangue no corpo?', options: ['Pulmão', 'Coração', 'Estômago', 'Fígado'], correct: 1 },
+        { q: 'Quantos lados tem um hexágono?', options: ['5', '6', '7', '8'], correct: 1 },
+        { q: 'Qual é a capital do Brasil?', options: ['Rio de Janeiro', 'São Paulo', 'Brasília', 'Salvador'], correct: 2 },
+      ],
+    },
+    final: {
+      normal: [
+        { q: 'Quanto é 15% de 200?', options: ['20', '30', '25', '40'], correct: 1 },
+        { q: 'Qual classe gramatical é a palavra "rapidamente"?', options: ['Substantivo', 'Adjetivo', 'Advérbio', 'Verbo'], correct: 2 },
+        { q: 'Quantos ossos tem o corpo humano adulto, aproximadamente?', options: ['106', '206', '306', '406'], correct: 1 },
+        { q: 'Em que ano o Brasil foi descoberto pelos portugueses?', options: ['1500', '1822', '1889', '1600'], correct: 0 },
+        { q: 'Qual é o resultado de 2³?', options: ['6', '8', '9', '4'], correct: 1 },
+        { q: 'Qual é o maior oceano do mundo?', options: ['Atlântico', 'Índico', 'Pacífico', 'Ártico'], correct: 2 },
+        { q: 'Qual é o plural correto de "cidadão"?', options: ['Cidadãos', 'Cidadães', 'Cidadões', 'Cidadão'], correct: 0 },
+        { q: 'Qual gás os seres humanos precisam respirar para viver?', options: ['Gás carbônico', 'Oxigênio', 'Nitrogênio', 'Hidrogênio'], correct: 1 },
+      ],
+      hard: [
+        { q: 'Se x + 5 = 12, quanto vale x?', options: ['5', '6', '7', '8'], correct: 2 },
+        { q: 'Quem proclamou a independência do Brasil?', options: ['Tiradentes', 'Dom Pedro I', 'Dom Pedro II', 'Getúlio Vargas'], correct: 1 },
+        { q: 'Qual é a menor unidade da vida?', options: ['Átomo', 'Célula', 'Molécula', 'Tecido'], correct: 1 },
+        { q: 'Qual é o maior país da América do Sul?', options: ['Argentina', 'Brasil', 'Peru', 'Colômbia'], correct: 1 },
+        { q: 'Quanto é a raiz quadrada de 81?', options: ['7', '8', '9', '10'], correct: 2 },
+      ],
+    },
+    medio: {
+      normal: [
+        { q: 'A fórmula de Bhaskara é usada para resolver:', options: ['Equações do 1º grau', 'Equações do 2º grau', 'Sistemas lineares', 'Logaritmos'], correct: 1 },
+        { q: 'Qual é a unidade de força no Sistema Internacional?', options: ['Watt', 'Joule', 'Newton', 'Pascal'], correct: 2 },
+        { q: 'Qual é o símbolo químico do ouro?', options: ['Ag', 'Au', 'Fe', 'Pb'], correct: 1 },
+        { q: 'Qual é a função das mitocôndrias na célula?', options: ['Produzir energia', 'Armazenar água', 'Fazer fotossíntese', 'Guardar DNA'], correct: 0 },
+        { q: 'Em que período ocorreu a Segunda Guerra Mundial?', options: ['1914-1918', '1939-1945', '1929-1933', '1945-1950'], correct: 1 },
+        { q: 'Quem escreveu "Dom Casmurro"?', options: ['José de Alencar', 'Machado de Assis', 'Carlos Drummond', 'Clarice Lispector'], correct: 1 },
+        { q: 'Quanto é log10(100)?', options: ['1', '2', '10', '100'], correct: 1 },
+        { q: 'Qual é o maior deserto do mundo em área?', options: ['Saara', 'Antártico', 'Arábico', 'Gobi'], correct: 1 },
+      ],
+      hard: [
+        { q: 'Qual é a fórmula da segunda lei de Newton?', options: ['F=m/a', 'F=ma', 'F=m+a', 'F=a/m'], correct: 1 },
+        { q: 'Quantos elétrons tem um átomo neutro de carbono (Z=6)?', options: ['4', '6', '8', '12'], correct: 1 },
+        { q: 'Qual é a derivada de x²?', options: ['x', '2x', 'x²', '2'], correct: 1 },
+        { q: 'Qual é o processo de divisão celular usado na reprodução das células do corpo?', options: ['Mitose', 'Fotossíntese', 'Respiração', 'Digestão'], correct: 0 },
+        { q: 'Quem foi o primeiro presidente do Brasil?', options: ['Getúlio Vargas', 'Deodoro da Fonseca', 'Juscelino Kubitschek', 'Dom Pedro II'], correct: 1 },
+      ],
+    },
+  };
+
+  function tierForGrade(grade) {
+    const fundamentalI = ['1º ano', '2º ano', '3º ano', '4º ano', '5º ano'];
+    const fundamentalII = ['6º ano', '7º ano', '8º ano', '9º ano'];
+    if (fundamentalI.includes(grade)) return 'inicial';
+    if (fundamentalII.includes(grade)) return 'final';
+    return 'medio';
+  }
+
+  function sampleQuestions(tier, difficulty, count) {
+    const pool = [...QUESTION_BANK[tier][difficulty]];
+    const picked = [];
+    while (picked.length < count && pool.length > 0) {
+      const idx = Math.floor(Math.random() * pool.length);
+      picked.push(pool.splice(idx, 1)[0]);
+    }
+    return picked;
+  }
+
+  const quiz = { mode: 'lifeline', pool: [], index: 0, correct: 0 };
+
+  function startLifelineQuiz() {
+    if (state === STATE.QUIZ && quiz.mode === 'lifeline') return;
+    state = STATE.QUIZ;
+    quiz.mode = 'lifeline';
+    quiz.pool = sampleQuestions(gradeTier, 'normal', 5);
+    quiz.index = 0;
+    quiz.correct = 0;
+    quizTitle.textContent = '📚 Hora do Quiz!';
+    quizScreen.classList.remove('hidden');
+    showQuizQuestion();
+  }
+
+  function startGiftQuiz() {
+    state = STATE.QUIZ;
+    quiz.mode = 'gift';
+    quiz.pool = sampleQuestions(gradeTier, 'hard', 1);
+    quiz.index = 0;
+    quiz.correct = 0;
+    quizTitle.textContent = '🎁 Pergunta Bônus!';
+    quizScreen.classList.remove('hidden');
+    showQuizQuestion();
+  }
+
+  function showQuizQuestion() {
+    const q = quiz.pool[quiz.index];
+    quizProgress.textContent = quiz.mode === 'lifeline'
+      ? `Pergunta ${quiz.index + 1}/${quiz.pool.length} • Acertos: ${quiz.correct}`
+      : 'Acerte para destruir todos os corvos da tela!';
+    quizQuestion.textContent = q.q;
+    quizFeedback.textContent = '';
+    quizOptions.innerHTML = '';
+
+    const correctText = q.options[q.correct];
+    const shuffled = [...q.options];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    shuffled.forEach(optText => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = optText;
+      btn.addEventListener('click', () => handleQuizAnswer(btn, optText === correctText));
+      quizOptions.appendChild(btn);
+    });
+  }
+
+  function handleQuizAnswer(btn, isCorrect) {
+    Array.from(quizOptions.children).forEach(b => { b.disabled = true; });
+    btn.classList.add(isCorrect ? 'correct' : 'wrong');
+    quizFeedback.textContent = isCorrect ? '✅ Certinho!' : '❌ Não foi dessa vez!';
+    if (isCorrect) quiz.correct += 1;
+
+    setTimeout(() => {
+      quiz.index += 1;
+      if (quiz.mode === 'lifeline') {
+        if (quiz.index < quiz.pool.length) {
+          showQuizQuestion();
+        } else {
+          finishLifelineQuiz();
+        }
+      } else {
+        finishGiftQuiz(isCorrect);
+      }
+    }, 1200);
+  }
+
+  function finishLifelineQuiz() {
+    quizOptions.innerHTML = '';
+    quizQuestion.textContent = '';
+    quizProgress.textContent = '';
+    if (quiz.correct >= 3) {
+      quizFeedback.textContent = `🎉 Você acertou ${quiz.correct}/5! Vidas recarregadas, de volta ao jogo!`;
+      player.lives = 3;
+      player.invuln = 1.5;
+      enemyBullets = [];
+      setTimeout(() => {
+        quizScreen.classList.add('hidden');
+        state = STATE.PLAYING;
+        updateHud();
+      }, 1800);
+    } else {
+      quizFeedback.textContent = `📉 Você acertou só ${quiz.correct}/5. Não foi dessa vez...`;
+      setTimeout(() => {
+        quizScreen.classList.add('hidden');
+        endGame();
+      }, 1800);
+    }
+  }
+
+  function finishGiftQuiz(isCorrect) {
+    quizOptions.innerHTML = '';
+    quizQuestion.textContent = '';
+    quizProgress.textContent = '';
+    if (isCorrect) {
+      quizFeedback.textContent = '💥 Isso! Todos os corvos foram embora!';
+      for (const e of enemies) spawnExplosion(e.x + e.w / 2, e.y + e.h / 2, '#2b2b2b');
+      score += enemies.length * 10 * wave;
+      enemies = [];
+    } else {
+      quizFeedback.textContent = '💔 Resposta errada, você perdeu um coração...';
+      player.lives -= 1;
+    }
+    setTimeout(() => {
+      quizScreen.classList.add('hidden');
+      updateHud();
+      if (player.lives <= 0) {
+        startLifelineQuiz();
+      } else {
+        state = STATE.PLAYING;
+      }
+    }, 1800);
+  }
+
   function phaseForWave(w) {
     return Math.floor((w - 1) / 3) + 1;
+  }
+
+  // difficulty ramps normally through wave 3, then eases off so it doesn't
+  // spike too hard/fast afterwards
+  function difficultyWave() {
+    return wave <= 3 ? wave : 3 + (wave - 3) * 0.4;
   }
 
   function playerMinY() { return 76; }
@@ -93,6 +379,8 @@
     player.ammo = player.maxAmmo;
     player.slowTimer = 0;
     player.slowFx = 0;
+    player.speed = BASE_SPEED;
+    player.shotPattern = 'single';
   }
 
   // ---------- Corn field background (baked onto an offscreen canvas so the
@@ -178,13 +466,14 @@
 
   function buildWave() {
     enemies = [];
-    const cols = Math.min(6, 4 + Math.floor(wave / 2));
-    const rows = Math.min(4, 2 + Math.floor(wave / 3));
+    const dWave = difficultyWave();
+    const cols = Math.min(6, 4 + Math.floor(dWave / 2));
+    const rows = Math.min(4, 2 + Math.floor(dWave / 3));
     const marginX = 30;
     const spacingX = (W - marginX * 2) / cols;
     const spacingY = 46;
     const startY = 50;
-    const speedBoost = (1 + (wave - 1) * 0.12) * (1 + (phase - 1) * 0.15);
+    const speedBoost = (1 + (dWave - 1) * 0.1) * (1 + (phase - 1) * 0.12);
     const hp = Math.min(1 + Math.floor((phase - 1) / 2), 3);
 
     for (let r = 0; r < rows; r++) {
@@ -239,6 +528,16 @@
     });
   }
 
+  function spawnGift() {
+    gifts.push({
+      x: Math.random() * (W - 60) + 30,
+      y: -30,
+      w: 26, h: 26,
+      speed: Math.random() * 20 + 35,
+      wobble: Math.random() * Math.PI * 2,
+    });
+  }
+
   function startGame() {
     score = 0;
     wave = 1;
@@ -247,8 +546,10 @@
     enemyBullets = [];
     particles = [];
     hearts = [];
+    gifts = [];
     grasshoppers = [];
     grasshopperSpawnTimer = 4;
+    giftSpawnTimer = Math.random() * 8 + 16;
     resetPlayer();
     buildWave();
     buildField();
@@ -259,6 +560,8 @@
     state = STATE.PLAYING;
     startScreen.classList.add('hidden');
     gameOverScreen.classList.add('hidden');
+    quizScreen.classList.add('hidden');
+    abilityScreen.classList.add('hidden');
   }
 
   function endGame() {
@@ -326,17 +629,48 @@
   canvas.addEventListener('touchend', onPointerUp, { passive: false });
   canvas.addEventListener('touchcancel', onPointerUp, { passive: false });
 
-  startBtn.addEventListener('click', startGame);
+  startBtn.addEventListener('click', () => {
+    const grade = gradeSelect.value;
+    if (!grade) {
+      gradeSelect.classList.add('invalid');
+      gradeSelect.focus();
+      return;
+    }
+    gradeSelect.classList.remove('invalid');
+    schoolGrade = grade;
+    gradeTier = tierForGrade(grade);
+    startGame();
+  });
   restartBtn.addEventListener('click', startGame);
 
   // ---------- Entities helpers ----------
-  function spawnPlayerBullet() {
+  function spawnKernelAt(x, y, vx) {
     bullets.push({
-      x: player.x + player.w / 2 - 3,
-      y: player.y - 10,
+      x: x - 3.5,
+      y,
       w: 7, h: 10,
       speed: 620,
+      vx: vx || 0,
     });
+  }
+
+  function fireShotPattern() {
+    const cx = player.x + player.w / 2;
+    const topY = player.y - 10;
+    if (player.shotPattern === 'double') {
+      spawnKernelAt(cx - 9, topY, 0);
+      spawnKernelAt(cx + 9, topY, 0);
+    } else if (player.shotPattern === 'tripleStraight') {
+      spawnKernelAt(cx - 14, topY, 0);
+      spawnKernelAt(cx, topY, 0);
+      spawnKernelAt(cx + 14, topY, 0);
+    } else if (player.shotPattern === 'tripleDiagonal') {
+      spawnKernelAt(cx, topY, 0);
+      spawnKernelAt(cx - 6, topY, -140);
+      spawnKernelAt(cx + 6, topY, 140);
+    } else {
+      spawnKernelAt(cx, topY, 0);
+    }
   }
 
   function spawnEnemyBullet(enemy) {
@@ -427,18 +761,19 @@
 
     // firing: holding pointer down on canvas, or spacebar (limited ammo)
     player.fireCooldown -= dt;
-    const wantsFire = (pointerDown || keys.fire) && player.fireCooldown <= 0 && player.ammo > 0;
+    const cost = shotCost();
+    const wantsFire = (pointerDown || keys.fire) && player.fireCooldown <= 0 && player.ammo >= cost;
     if (wantsFire) {
-      spawnPlayerBullet();
-      player.ammo -= 1;
+      fireShotPattern();
+      player.ammo -= cost;
       player.fireCooldown = player.fireRate;
     }
 
     if (player.invuln > 0) player.invuln -= dt;
 
     // player bullets
-    bullets.forEach(b => b.y -= b.speed * dt);
-    bullets = bullets.filter(b => b.y + b.h > 0);
+    bullets.forEach(b => { b.y -= b.speed * dt; b.x += (b.vx || 0) * dt; });
+    bullets = bullets.filter(b => b.y + b.h > 0 && b.x > -30 && b.x < W + 30);
 
     // enemy bullets
     enemyBullets.forEach(b => b.y += b.speed * dt);
@@ -450,6 +785,18 @@
       h.x += Math.sin(elapsed * 2 + h.wobble) * 18 * dt;
     }
     hearts = hearts.filter(h => h.y < H + 30);
+
+    // mystery gifts (bonus question pickups)
+    giftSpawnTimer -= dt;
+    if (giftSpawnTimer <= 0) {
+      spawnGift();
+      giftSpawnTimer = Math.random() * 15 + 22;
+    }
+    for (const g of gifts) {
+      g.y += g.speed * dt;
+      g.x += Math.sin(elapsed * 1.6 + g.wobble) * 14 * dt;
+    }
+    gifts = gifts.filter(g => g.y < H + 30);
 
     // side corn patches: grow over time, slowed while a grasshopper sits on them
     for (const p of patches) {
@@ -490,11 +837,12 @@
     }
     grasshoppers = grasshoppers.filter(g => g.alive && g.x > -40 && g.x < W + 40 && g.y < H + 40);
 
-    // crow formation + organic swim movement
+    // crow formation + organic swim movement (eased off after wave 3)
     let hitEdge = false;
     const aliveEnemies = enemies.filter(e => e.alive);
-    const formSpeed = (40 + wave * 6) * (1 + (phase - 1) * 0.15);
-    const descendSpeed = (16 + wave * 2) * (1 + (phase - 1) * 0.2);
+    const dWave = difficultyWave();
+    const formSpeed = (40 + dWave * 5) * (1 + (phase - 1) * 0.12);
+    const descendSpeed = (14 + dWave * 1.6) * (1 + (phase - 1) * 0.16);
 
     for (const e of aliveEnemies) {
       if (phase >= 2 && !e.diving) {
@@ -507,7 +855,7 @@
       if (e.diving) {
         const targetCx = player.x + player.w / 2;
         e.x += (targetCx - (e.x + e.w / 2)) * Math.min(1, dt * 1.5);
-        e.y += descendSpeed * 2.6 * dt;
+        e.y += descendSpeed * 2 * dt;
       } else {
         e.baseX += enemyDir * formSpeed * e.speedBoost * dt;
         e.x = e.baseX + Math.sin(elapsed * 2 + e.phaseOffset) * e.waveAmp;
@@ -532,10 +880,11 @@
         spawnEnemyBullet(e);
         e.shootCooldown = Math.random() * (4.5 - Math.min(wave * 0.2, 3)) + 1.5;
       }
-      if (e.y + e.h >= groundY) {
-        endGame();
+      if (e.y + e.h >= groundY && state === STATE.PLAYING) {
+        startLifelineQuiz();
       }
     }
+    if (state !== STATE.PLAYING) { updateHud(); return; }
 
     // collisions: corn kernels vs crows and vs grasshoppers
     for (const b of bullets) {
@@ -578,6 +927,17 @@
       }
     }
     hearts = hearts.filter(h => !h.dead);
+
+    // pickups: harvester drives over a mystery gift -> bonus question
+    for (const g of gifts) {
+      if (rectsOverlap(player, g)) {
+        g.dead = true;
+        startGiftQuiz();
+        break;
+      }
+    }
+    gifts = gifts.filter(g => !g.dead);
+    if (state !== STATE.PLAYING) { updateHud(); return; }
 
     // harvester drives over a ripe patch -> reload ammo
     for (const p of patches) {
@@ -624,6 +984,7 @@
       }
       enemies = enemies.filter(e => e.alive);
     }
+    if (state !== STATE.PLAYING) { updateHud(); return; }
 
     // particles
     for (const p of particles) {
@@ -633,16 +994,9 @@
     }
     particles = particles.filter(p => p.age < p.life);
 
-    // wave clear
+    // wave clear -> choose an ability before the next wave begins
     if (enemies.length === 0) {
-      wave += 1;
-      const newPhase = phaseForWave(wave);
-      if (newPhase !== phase) {
-        phase = newPhase;
-        phaseBannerTimer = 2.6;
-        spawnPhaseHearts();
-      }
-      buildWave();
+      openAbilitySelection();
     }
 
     updateHud();
@@ -654,7 +1008,7 @@
     spawnExplosion(player.x + player.w / 2, player.y + player.h / 2, '#dff6ff');
     updateHud();
     if (player.lives <= 0) {
-      endGame();
+      startLifelineQuiz();
     }
   }
 
@@ -901,6 +1255,18 @@
     ctx.restore();
   }
 
+  function drawGift(g) {
+    ctx.save();
+    const pulse = 1 + Math.sin(elapsed * 3 + g.wobble) * 0.08;
+    ctx.font = `${(g.h + 10) * pulse}px serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = '#ffb347';
+    ctx.shadowBlur = 14;
+    ctx.fillText('🎁', g.x + g.w / 2, g.y + g.h / 2);
+    ctx.restore();
+  }
+
   function drawPatch(p) {
     const rect = patchRect(p);
     const cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
@@ -972,7 +1338,7 @@
     ctx.drawImage(fieldCanvas, 0, 0);
     drawSky();
 
-    if (state === STATE.PLAYING) {
+    if (state === STATE.PLAYING || state === STATE.ABILITY || state === STATE.QUIZ) {
       // side corn patches
       for (const p of patches) drawPatch(p);
 
@@ -986,8 +1352,9 @@
       for (const e of enemies) drawCrow(e);
       for (const g of grasshoppers) drawGrasshopper(g);
 
-      // hearts
+      // hearts + gifts
       for (const h of hearts) drawHeart(h);
+      for (const g of gifts) drawGift(g);
 
       // bullets
       for (const b of bullets) drawKernel(b);
@@ -1004,7 +1371,7 @@
       }
       ctx.globalAlpha = 1;
 
-      drawPhaseBanner();
+      if (state === STATE.PLAYING) drawPhaseBanner();
     }
   }
 

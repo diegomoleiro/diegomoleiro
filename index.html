@@ -24,9 +24,33 @@
       <p>Arraste ou use as setas (↑ ↓ ← →) para dirigir a colheitadeira pela plantação.<br>
          Toque na tela (ou pressione espaço) para atirar milho — você tem só 30 tiros!<br>
          Quando o milho das laterais estiver maduro (brilhando), passe por cima para recarregar.<br>
-         Destrua os corvos (pretos, brancos e cinzas) antes que cheguem até você.<br>
-         Cuidado com os gafanhotos: são ágeis, não atiram, mas deixam você lento e atrasam a plantação.<br>
-         A cada fase caem corações extras — passe por cima para ganhar mais vidas.</p>
+         Destrua os corvos antes que cheguem até você, e cuidado com os gafanhotos.<br>
+         A cada onda você escolhe uma nova habilidade. Se as vidas acabarem, um quiz da escola
+         pode te dar uma segunda chance!</p>
+      <div class="grade-select">
+        <label for="gradeSelect">Qual é o seu ano escolar?</label>
+        <select id="gradeSelect">
+          <option value="" disabled selected>Selecione...</option>
+          <optgroup label="Fundamental I">
+            <option value="1º ano">1º ano</option>
+            <option value="2º ano">2º ano</option>
+            <option value="3º ano">3º ano</option>
+            <option value="4º ano">4º ano</option>
+            <option value="5º ano">5º ano</option>
+          </optgroup>
+          <optgroup label="Fundamental II">
+            <option value="6º ano">6º ano</option>
+            <option value="7º ano">7º ano</option>
+            <option value="8º ano">8º ano</option>
+            <option value="9º ano">9º ano</option>
+          </optgroup>
+          <optgroup label="Ensino Médio">
+            <option value="1º ano EM">1º ano do Ensino Médio</option>
+            <option value="2º ano EM">2º ano do Ensino Médio</option>
+            <option value="3º ano EM">3º ano do Ensino Médio</option>
+          </optgroup>
+        </select>
+      </div>
       <button id="startBtn">Iniciar Jogo</button>
     </div>
 
@@ -34,6 +58,20 @@
       <h1>💥 FIM DE JOGO</h1>
       <p id="finalScore">Pontuação final: 0</p>
       <button id="restartBtn">Jogar Novamente</button>
+    </div>
+
+    <div id="quizScreen" class="overlay hidden">
+      <h1 id="quizTitle">📚 Hora do Quiz!</h1>
+      <p id="quizProgress"></p>
+      <p id="quizQuestion"></p>
+      <div id="quizOptions" class="quiz-options"></div>
+      <p id="quizFeedback"></p>
+    </div>
+
+    <div id="abilityScreen" class="overlay hidden">
+      <h1>⭐ Nova Habilidade!</h1>
+      <p>Escolha uma para continuar:</p>
+      <div id="abilityCards" class="ability-cards"></div>
     </div>
   </div>
 
