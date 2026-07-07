@@ -31,7 +31,7 @@
   let state = STATE.MENU;
 
   const player = {
-    w: 44, h: 40,
+    w: 54, h: 38,
     x: 0, y: 0,
     speed: 420,
     fireCooldown: 0,
@@ -338,37 +338,115 @@
   }
 
   // ---------- Draw ----------
-  function drawShip(x, y, w, h, color, glow) {
+  function drawSubmarine(x, y, w, h, color, glow) {
     ctx.save();
     ctx.translate(x + w / 2, y + h / 2);
     ctx.shadowColor = glow || color;
     ctx.shadowBlur = 12;
     ctx.fillStyle = color;
+
+    const bodyW = w;
+    const bodyH = h * 0.5;
+    const bodyY = h * 0.1;
+
+    // hull
     ctx.beginPath();
-    ctx.moveTo(0, -h / 2);
-    ctx.lineTo(w / 2, h / 2);
-    ctx.lineTo(0, h / 3);
-    ctx.lineTo(-w / 2, h / 2);
+    ctx.ellipse(0, bodyY, bodyW / 2, bodyH / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // conning tower (sail)
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.12, bodyY);
+    ctx.lineTo(-w * 0.12, -h * 0.34);
+    ctx.quadraticCurveTo(0, -h * 0.5, w * 0.12, -h * 0.34);
+    ctx.lineTo(w * 0.12, bodyY);
     ctx.closePath();
     ctx.fill();
+
+    // periscope
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, -h * 0.42);
+    ctx.lineTo(0, -h * 0.56);
+    ctx.stroke();
+
+    // tail (propeller end)
+    ctx.beginPath();
+    ctx.moveTo(-bodyW / 2, bodyY);
+    ctx.lineTo(-bodyW / 2 - w * 0.14, bodyY - h * 0.14);
+    ctx.lineTo(-bodyW / 2 - w * 0.14, bodyY + h * 0.14);
+    ctx.closePath();
+    ctx.fill();
+
+    // nose fin
+    ctx.beginPath();
+    ctx.moveTo(bodyW / 2, bodyY);
+    ctx.lineTo(bodyW / 2 + w * 0.1, bodyY - h * 0.08);
+    ctx.lineTo(bodyW / 2 + w * 0.1, bodyY + h * 0.08);
+    ctx.closePath();
+    ctx.fill();
+
+    // portholes
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    [-bodyW * 0.18, 0, bodyW * 0.18].forEach(px => {
+      ctx.beginPath();
+      ctx.arc(px, bodyY, Math.max(2, w * 0.035), 0, Math.PI * 2);
+      ctx.fill();
+    });
+
     ctx.restore();
   }
 
-  function drawEnemy(e) {
+  function drawFish(e) {
     const colors = ['#ff3b6e', '#7c4dff', '#00e5a8'];
+    const color = colors[e.type];
+    const w = e.w, h = e.h;
     ctx.save();
-    ctx.translate(e.x + e.w / 2, e.y + e.h / 2);
-    ctx.rotate(Math.PI);
-    ctx.shadowColor = colors[e.type];
+    ctx.translate(e.x + w / 2, e.y + h / 2);
+    ctx.shadowColor = color;
     ctx.shadowBlur = 10;
-    ctx.fillStyle = colors[e.type];
+    ctx.fillStyle = color;
+
+    // tail fin (up top, fish head points down toward the player)
     ctx.beginPath();
-    ctx.moveTo(0, -e.h / 2);
-    ctx.lineTo(e.w / 2, e.h / 2);
-    ctx.lineTo(0, e.h / 3);
-    ctx.lineTo(-e.w / 2, e.h / 2);
+    ctx.moveTo(0, -h * 0.18);
+    ctx.lineTo(-w * 0.22, -h * 0.62);
+    ctx.lineTo(w * 0.22, -h * 0.62);
     ctx.closePath();
     ctx.fill();
+
+    // body
+    ctx.beginPath();
+    ctx.ellipse(0, 0, w * 0.34, h * 0.42, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // side fins
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.32, -h * 0.02);
+    ctx.lineTo(-w * 0.52, h * 0.12);
+    ctx.lineTo(-w * 0.28, h * 0.18);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(w * 0.32, -h * 0.02);
+    ctx.lineTo(w * 0.52, h * 0.12);
+    ctx.lineTo(w * 0.28, h * 0.18);
+    ctx.closePath();
+    ctx.fill();
+
+    // eye
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(-w * 0.1, h * 0.18, w * 0.09, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#001122';
+    ctx.beginPath();
+    ctx.arc(-w * 0.1, h * 0.2, w * 0.045, 0, Math.PI * 2);
+    ctx.fill();
+
     ctx.restore();
   }
 
@@ -389,11 +467,11 @@
 
     // player
     if (player.invuln <= 0 || Math.floor(player.invuln * 12) % 2 === 0) {
-      drawShip(player.x, player.y, player.w, player.h, '#00e5ff', '#00e5ff');
+      drawSubmarine(player.x, player.y, player.w, player.h, '#00e5ff', '#00e5ff');
     }
 
     // enemies
-    for (const e of enemies) drawEnemy(e);
+    for (const e of enemies) drawFish(e);
 
     // bullets
     ctx.fillStyle = '#00ffea';
