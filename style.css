@@ -61,6 +61,23 @@ canvas {
   letter-spacing: 2px;
 }
 
+.hud-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+#ammo {
+  font-size: 13px;
+  color: #ffd23f;
+  text-shadow: 0 0 6px #ffb347, 0 0 2px #000;
+}
+
+#ammo.empty {
+  color: #ff5c5c;
+  text-shadow: 0 0 6px #ff2222, 0 0 2px #000;
+}
+
 .overlay {
   position: absolute;
   inset: 0;
