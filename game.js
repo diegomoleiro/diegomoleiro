@@ -21,6 +21,7 @@
   const quizQuestion = document.getElementById('quizQuestion');
   const quizOptions = document.getElementById('quizOptions');
   const quizFeedback = document.getElementById('quizFeedback');
+  const quizExplanation = document.getElementById('quizExplanation');
   const abilityScreen = document.getElementById('abilityScreen');
   const abilityCards = document.getElementById('abilityCards');
 
@@ -349,10 +350,11 @@
   function showQuizQuestion() {
     const q = quiz.pool[quiz.index];
     quizProgress.textContent = quiz.mode === 'lifeline'
-      ? `Pergunta ${quiz.index + 1}/${quiz.pool.length} • Acertos: ${quiz.correct}`
+      ? `Pergunta ${quiz.index + 1}/${quiz.pool.length} • Vidas ganhas: ${quiz.correct}`
       : 'Acerte para destruir todos os corvos da tela!';
     quizQuestion.textContent = q.q;
     quizFeedback.textContent = '';
+    quizExplanation.textContent = '';
     quizOptions.innerHTML = '';
 
     const correctText = q.options[q.correct];
@@ -371,10 +373,20 @@
   }
 
   function handleQuizAnswer(btn, isCorrect) {
-    Array.from(quizOptions.children).forEach(b => { b.disabled = true; });
-    btn.classList.add(isCorrect ? 'correct' : 'wrong');
-    quizFeedback.textContent = isCorrect ? '✅ Certinho!' : '❌ Não foi dessa vez!';
-    if (isCorrect) quiz.correct += 1;
+    const q = quiz.pool[quiz.index];
+    const correctText = q.options[q.correct];
+    Array.from(quizOptions.children).forEach(b => {
+      b.disabled = true;
+      if (b.textContent === correctText) b.classList.add('correct');
+    });
+    if (!isCorrect) btn.classList.add('wrong');
+    if (isCorrect) {
+      quiz.correct += 1;
+      quizFeedback.textContent = '✅ Certinho!';
+    } else {
+      quizFeedback.textContent = `❌ Errou! A resposta certa era "${correctText}".`;
+    }
+    quizExplanation.textContent = q.explanation || '';
 
     setTimeout(() => {
       quiz.index += 1;
@@ -387,25 +399,30 @@
       } else {
         finishGiftQuiz(isCorrect);
       }
-    }, 1200);
+    }, isCorrect ? 1400 : 2800);
   }
 
   function finishLifelineQuiz() {
     quizOptions.innerHTML = '';
     quizQuestion.textContent = '';
     quizProgress.textContent = '';
-    if (quiz.correct >= 3) {
-      quizFeedback.textContent = `🎉 Você acertou ${quiz.correct}/5! Vidas recarregadas, de volta ao jogo!`;
-      player.lives = 3;
+    quizExplanation.textContent = '';
+    if (quiz.correct > 0) {
+      const livesWord = quiz.correct === 1 ? 'vida' : 'vidas';
+      quizFeedback.textContent = `🎉 Você acertou ${quiz.correct}/5! Ganhou ${quiz.correct} ${livesWord} e a onda foi reiniciada.`;
+      player.lives = quiz.correct;
       player.invuln = 1.5;
+      player.ammo = player.maxAmmo;
       enemyBullets = [];
+      bullets = [];
+      buildWave();
       setTimeout(() => {
         quizScreen.classList.add('hidden');
         state = STATE.PLAYING;
         updateHud();
       }, 1800);
     } else {
-      quizFeedback.textContent = `📉 Você acertou só ${quiz.correct}/5. Não foi dessa vez...`;
+      quizFeedback.textContent = '📉 Você não acertou nenhuma. Não foi dessa vez...';
       setTimeout(() => {
         quizScreen.classList.add('hidden');
         endGame();
@@ -417,6 +434,7 @@
     quizOptions.innerHTML = '';
     quizQuestion.textContent = '';
     quizProgress.textContent = '';
+    quizExplanation.textContent = '';
     if (isCorrect) {
       quizFeedback.textContent = '💥 Isso! Todos os corvos foram embora!';
       for (const e of enemies) spawnExplosion(e.x + e.w / 2, e.y + e.h / 2, '#2b2b2b');
@@ -437,14 +455,10 @@
     }, 1800);
   }
 
-  function phaseForWave(w) {
-    return Math.floor((w - 1) / 3) + 1;
-  }
+  const WAVES_PER_PHASE = 5;
 
-  // difficulty ramps normally through wave 3, then eases off so it doesn't
-  // spike too hard/fast afterwards
-  function difficultyWave() {
-    return wave <= 3 ? wave : 3 + (wave - 3) * 0.4;
+  function phaseForWave(w) {
+    return Math.floor((w - 1) / WAVES_PER_PHASE) + 1;
   }
 
   function playerMinY() { return 76; }
@@ -547,14 +561,16 @@
 
   function buildWave() {
     enemies = [];
-    const dWave = difficultyWave();
-    const cols = Math.min(6, 4 + Math.floor(dWave / 2));
-    const rows = Math.min(4, 2 + Math.floor(dWave / 3));
+    // difficulty (count, speed, toughness) is tied only to the phase, so all
+    // waves inside the same phase feel the same and the ramp-up only happens
+    // when a new phase begins
+    const cols = Math.min(6, 4 + Math.floor((phase - 1) / 2));
+    const rows = Math.min(4, 2 + Math.floor((phase - 1) / 2));
     const marginX = 30;
     const spacingX = (W - marginX * 2) / cols;
     const spacingY = 46;
     const startY = 50;
-    const speedBoost = (1 + (dWave - 1) * 0.1) * (1 + (phase - 1) * 0.12);
+    const speedBoost = 1 + (phase - 1) * 0.08;
     const hp = Math.min(1 + Math.floor((phase - 1) / 2), 3);
 
     for (let r = 0; r < rows; r++) {
@@ -767,7 +783,7 @@
       x: enemy.x + enemy.w / 2 - 3,
       y: enemy.y + enemy.h,
       w: 6, h: 9,
-      speed: 260 + wave * 12,
+      speed: 260 + (phase - 1) * 16,
     });
   }
 
@@ -943,12 +959,12 @@
     }
     grasshoppers = grasshoppers.filter(g => g.alive && g.x > -40 && g.x < W + 40 && g.y < H + 40);
 
-    // crow formation + organic swim movement (eased off after wave 3)
+    // crow formation + organic swim movement (speed only ramps up between
+    // phases, so every wave inside a phase moves at the same pace)
     let hitEdge = false;
     const aliveEnemies = enemies.filter(e => e.alive);
-    const dWave = difficultyWave();
-    const formSpeed = (40 + dWave * 5) * (1 + (phase - 1) * 0.12);
-    const descendSpeed = (14 + dWave * 1.6) * (1 + (phase - 1) * 0.16);
+    const formSpeed = 34 + (phase - 1) * 7;
+    const descendSpeed = 12 + (phase - 1) * 2.2;
 
     for (const e of aliveEnemies) {
       if (e.duststunned > 0) e.duststunned -= dt;
@@ -988,7 +1004,7 @@
         e.shootCooldown -= dt;
         if (e.shootCooldown <= 0) {
           spawnEnemyBullet(e);
-          e.shootCooldown = Math.random() * (4.5 - Math.min(wave * 0.2, 3)) + 1.5;
+          e.shootCooldown = Math.random() * (4.5 - Math.min((phase - 1) * 0.5, 3)) + 1.5;
         }
       }
       if (e.y + e.h >= groundY && state === STATE.PLAYING) {

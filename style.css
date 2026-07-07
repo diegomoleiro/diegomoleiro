@@ -219,6 +219,14 @@ canvas {
   color: #ffd23f;
 }
 
+#quizExplanation {
+  font-size: 13px;
+  font-weight: normal;
+  line-height: 1.5;
+  color: #cdeeff;
+  max-width: 320px;
+}
+
 .ability-cards {
   display: flex;
   gap: 14px;
