@@ -78,6 +78,13 @@ canvas {
   text-shadow: 0 0 6px #ff2222, 0 0 2px #000;
 }
 
+#powerup {
+  font-size: 12px;
+  min-height: 14px;
+  color: #ff9d4d;
+  text-shadow: 0 0 6px #ff8800, 0 0 2px #000;
+}
+
 .overlay {
   position: absolute;
   inset: 0;

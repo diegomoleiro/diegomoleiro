@@ -6,6 +6,7 @@
   const container = document.getElementById('game-container');
   const scoreEl = document.getElementById('score');
   const ammoEl = document.getElementById('ammo');
+  const powerupEl = document.getElementById('powerup');
   const levelEl = document.getElementById('level');
   const livesEl = document.getElementById('lives');
   const startScreen = document.getElementById('startScreen');
@@ -74,6 +75,7 @@
   let grasshoppers = [];   // agile pests
   let hearts = [];         // extra-life pickups
   let gifts = [];          // mystery bonus-question pickups
+  let powerups = [];       // 💥✈️🧨 combat bonus pickups
   let patches = [];        // side corn plots to harvest for ammo
   let particles = [];
   let clouds = [];
@@ -84,6 +86,11 @@
   let enemyDropTimer = 0;
   let grasshopperSpawnTimer = 4;
   let giftSpawnTimer = 18;
+  let powerupSpawnTimer = 20;
+  let activePowerUp = null;      // only 'rojao' persists; others fire instantly
+  let powerupLabel = '';
+  let powerupPersistent = false;
+  let powerupLabelTimer = 0;
   let elapsed = 0;
 
   let keys = { left: false, right: false, up: false, down: false, fire: false };
@@ -159,6 +166,80 @@
       spawnPhaseHearts();
     }
     buildWave();
+  }
+
+  // ---------- Combat bonus power-ups ----------
+  const POWERUP_TYPES = ['burst', 'duster', 'rojao'];
+  const POWERUP_ICONS = { burst: '💥', duster: '✈️', rojao: '🧨' };
+
+  function setPowerupDisplay(text, persistent) {
+    powerupLabel = text;
+    powerupPersistent = persistent;
+    powerupLabelTimer = persistent ? 0 : 1.8;
+  }
+
+  function fireRadialBurst() {
+    const cx = player.x + player.w / 2;
+    const cy = player.y + player.h / 2;
+    const count = 8;
+    for (let i = 0; i < count; i++) {
+      const angle = (Math.PI * 2 / count) * i;
+      bullets.push({
+        x: cx - 3.5, y: cy - 5,
+        w: 7, h: 10,
+        vx: Math.cos(angle) * 480,
+        vy: Math.sin(angle) * 480,
+      });
+    }
+    spawnExplosion(cx, cy, '#ffd23f', 20);
+  }
+
+  function applyCropDuster() {
+    for (const e of enemies) {
+      if (e.alive) e.duststunned = 4;
+    }
+    spawnExplosion(player.x + player.w / 2, player.y - 20, '#dff6ff', 14);
+  }
+
+  function explodeCrow(e) {
+    const radius = 55;
+    const cx = e.x + e.w / 2, cy = e.y + e.h / 2;
+    spawnExplosion(cx, cy, '#ff8800', 18);
+    for (const other of enemies) {
+      if (!other.alive || other === e) continue;
+      const ocx = other.x + other.w / 2, ocy = other.y + other.h / 2;
+      if (Math.hypot(ocx - cx, ocy - cy) <= radius) {
+        other.alive = false;
+        score += 10 * wave;
+        spawnExplosion(ocx, ocy, '#2b2b2b');
+      }
+    }
+  }
+
+  function activatePowerUp(type) {
+    activePowerUp = null; // picking up any bonus clears whatever was active before
+    if (type === 'burst') {
+      fireRadialBurst();
+      setPowerupDisplay('💥 Rajada de Milho!', false);
+    } else if (type === 'duster') {
+      applyCropDuster();
+      setPowerupDisplay('✈️ Corvos atordoados!', false);
+    } else if (type === 'rojao') {
+      activePowerUp = 'rojao';
+      setPowerupDisplay('🧨 Grão Rojão ativo', true);
+    }
+  }
+
+  function spawnPowerupItem() {
+    const type = POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)];
+    powerups.push({
+      type,
+      x: Math.random() * (W - 60) + 30,
+      y: -30,
+      w: 26, h: 26,
+      speed: Math.random() * 20 + 35,
+      wobble: Math.random() * Math.PI * 2,
+    });
   }
 
   // ---------- School quiz system ----------
@@ -493,6 +574,7 @@
           phaseOffset: Math.random() * Math.PI * 2,
           diving: false,
           diveCooldown: Math.random() * 5 + 4,
+          duststunned: 0,
         });
       }
     }
@@ -547,9 +629,15 @@
     particles = [];
     hearts = [];
     gifts = [];
+    powerups = [];
+    activePowerUp = null;
+    powerupLabel = '';
+    powerupPersistent = false;
+    powerupLabelTimer = 0;
     grasshoppers = [];
     grasshopperSpawnTimer = 4;
     giftSpawnTimer = Math.random() * 8 + 16;
+    powerupSpawnTimer = Math.random() * 10 + 14;
     resetPlayer();
     buildWave();
     buildField();
@@ -576,6 +664,7 @@
     livesEl.textContent = 'Vidas: ' + '❤️'.repeat(Math.max(player.lives, 0));
     ammoEl.textContent = `🌽 ${player.ammo}/${player.maxAmmo}`;
     ammoEl.classList.toggle('empty', player.ammo === 0);
+    powerupEl.textContent = powerupLabel;
   }
 
   // ---------- Input ----------
@@ -644,13 +733,13 @@
   restartBtn.addEventListener('click', startGame);
 
   // ---------- Entities helpers ----------
-  function spawnKernelAt(x, y, vx) {
+  function spawnKernelAt(x, y, vx, vy) {
     bullets.push({
       x: x - 3.5,
       y,
       w: 7, h: 10,
-      speed: 620,
       vx: vx || 0,
+      vy: vy === undefined ? -620 : vy,
     });
   }
 
@@ -772,8 +861,8 @@
     if (player.invuln > 0) player.invuln -= dt;
 
     // player bullets
-    bullets.forEach(b => { b.y -= b.speed * dt; b.x += (b.vx || 0) * dt; });
-    bullets = bullets.filter(b => b.y + b.h > 0 && b.x > -30 && b.x < W + 30);
+    bullets.forEach(b => { b.x += b.vx * dt; b.y += b.vy * dt; });
+    bullets = bullets.filter(b => b.y + b.h > 0 && b.y < H + 30 && b.x > -30 && b.x < W + 30);
 
     // enemy bullets
     enemyBullets.forEach(b => b.y += b.speed * dt);
@@ -797,6 +886,23 @@
       g.x += Math.sin(elapsed * 1.6 + g.wobble) * 14 * dt;
     }
     gifts = gifts.filter(g => g.y < H + 30);
+
+    // combat bonus power-ups (💥✈️🧨)
+    powerupSpawnTimer -= dt;
+    if (powerupSpawnTimer <= 0) {
+      spawnPowerupItem();
+      powerupSpawnTimer = Math.random() * 18 + 24;
+    }
+    for (const p of powerups) {
+      p.y += p.speed * dt;
+      p.x += Math.sin(elapsed * 1.6 + p.wobble) * 14 * dt;
+    }
+    powerups = powerups.filter(p => p.y < H + 30);
+
+    if (!powerupPersistent && powerupLabelTimer > 0) {
+      powerupLabelTimer -= dt;
+      if (powerupLabelTimer <= 0) powerupLabel = '';
+    }
 
     // side corn patches: grow over time, slowed while a grasshopper sits on them
     for (const p of patches) {
@@ -845,6 +951,9 @@
     const descendSpeed = (14 + dWave * 1.6) * (1 + (phase - 1) * 0.16);
 
     for (const e of aliveEnemies) {
+      if (e.duststunned > 0) e.duststunned -= dt;
+      const stunMul = e.duststunned > 0 ? 0.35 : 1;
+
       if (phase >= 2 && !e.diving) {
         e.diveCooldown -= dt;
         if (e.diveCooldown <= 0) {
@@ -854,12 +963,12 @@
 
       if (e.diving) {
         const targetCx = player.x + player.w / 2;
-        e.x += (targetCx - (e.x + e.w / 2)) * Math.min(1, dt * 1.5);
-        e.y += descendSpeed * 2 * dt;
+        e.x += (targetCx - (e.x + e.w / 2)) * Math.min(1, dt * 1.5) * stunMul;
+        e.y += descendSpeed * 2 * stunMul * dt;
       } else {
-        e.baseX += enemyDir * formSpeed * e.speedBoost * dt;
+        e.baseX += enemyDir * formSpeed * e.speedBoost * stunMul * dt;
         e.x = e.baseX + Math.sin(elapsed * 2 + e.phaseOffset) * e.waveAmp;
-        e.y += descendSpeed * dt;
+        e.y += descendSpeed * stunMul * dt;
         if (e.baseX < 10 || e.baseX + e.w > W - 10) hitEdge = true;
       }
     }
@@ -875,10 +984,12 @@
     // crow attacks + ground invasion check
     const groundY = H - GROUND_MARGIN;
     for (const e of aliveEnemies) {
-      e.shootCooldown -= dt;
-      if (e.shootCooldown <= 0) {
-        spawnEnemyBullet(e);
-        e.shootCooldown = Math.random() * (4.5 - Math.min(wave * 0.2, 3)) + 1.5;
+      if (e.duststunned <= 0) { // stunned by the crop duster: no shooting
+        e.shootCooldown -= dt;
+        if (e.shootCooldown <= 0) {
+          spawnEnemyBullet(e);
+          e.shootCooldown = Math.random() * (4.5 - Math.min(wave * 0.2, 3)) + 1.5;
+        }
       }
       if (e.y + e.h >= groundY && state === STATE.PLAYING) {
         startLifelineQuiz();
@@ -898,6 +1009,7 @@
             e.alive = false;
             score += 10 * wave;
             spawnExplosion(e.x + e.w / 2, e.y + e.h / 2, '#2b2b2b');
+            if (activePowerUp === 'rojao') explodeCrow(e);
           } else {
             spawnExplosion(b.x, b.y, '#ffffff', 6);
           }
@@ -938,6 +1050,15 @@
     }
     gifts = gifts.filter(g => !g.dead);
     if (state !== STATE.PLAYING) { updateHud(); return; }
+
+    // pickups: harvester drives over a combat bonus -> activate it (replaces any previous one)
+    for (const p of powerups) {
+      if (rectsOverlap(player, p)) {
+        p.dead = true;
+        activatePowerUp(p.type);
+      }
+    }
+    powerups = powerups.filter(p => !p.dead);
 
     // harvester drives over a ripe patch -> reload ammo
     for (const p of patches) {
@@ -1170,6 +1291,18 @@
     ctx.fill();
 
     ctx.restore();
+
+    // dazed swirl above a crow stunned by the crop duster
+    if (e.duststunned > 0) {
+      ctx.save();
+      ctx.translate(e.x + w / 2, e.y - h * 0.15);
+      ctx.font = `${w * 0.55}px serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.rotate(Math.sin(elapsed * 6) * 0.3);
+      ctx.fillText('💫', 0, 0);
+      ctx.restore();
+    }
   }
 
   function drawGrasshopper(g) {
@@ -1267,6 +1400,18 @@
     ctx.restore();
   }
 
+  function drawPowerup(p) {
+    ctx.save();
+    const pulse = 1 + Math.sin(elapsed * 3 + p.wobble) * 0.08;
+    ctx.font = `${(p.h + 10) * pulse}px serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = '#ff9d4d';
+    ctx.shadowBlur = 14;
+    ctx.fillText(POWERUP_ICONS[p.type], p.x + p.w / 2, p.y + p.h / 2);
+    ctx.restore();
+  }
+
   function drawPatch(p) {
     const rect = patchRect(p);
     const cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
@@ -1352,9 +1497,10 @@
       for (const e of enemies) drawCrow(e);
       for (const g of grasshoppers) drawGrasshopper(g);
 
-      // hearts + gifts
+      // hearts + gifts + power-ups
       for (const h of hearts) drawHeart(h);
       for (const g of gifts) drawGift(g);
+      for (const p of powerups) drawPowerup(p);
 
       // bullets
       for (const b of bullets) drawKernel(b);
