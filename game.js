@@ -14,7 +14,10 @@
   const restartBtn = document.getElementById('restartBtn');
 
   let W = 0, H = 0, DPR = 1;
-  const FLOOR_H = 70;
+  const GROUND_MARGIN = 20;
+
+  const fieldCanvas = document.createElement('canvas');
+  const fieldCtx = fieldCanvas.getContext('2d');
 
   function resize() {
     const rect = container.getBoundingClientRect();
@@ -24,8 +27,9 @@
     canvas.width = W * DPR;
     canvas.height = H * DPR;
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    initBubbles();
-    initStarfish();
+    fieldCanvas.width = W;
+    fieldCanvas.height = H;
+    buildField();
   }
   window.addEventListener('resize', resize);
 
@@ -34,7 +38,7 @@
   let state = STATE.MENU;
 
   const player = {
-    w: 54, h: 38,
+    w: 56, h: 40,
     x: 0, y: 0,
     speed: 380,
     tilt: 0,
@@ -45,13 +49,12 @@
   };
 
   let score = 0;
-  let bullets = [];       // player bullets
-  let enemyBullets = [];
-  let enemies = [];
+  let bullets = [];       // corn kernels
+  let enemyBullets = [];  // crow pecks
+  let enemies = [];       // crows
+  let hearts = [];        // extra-life pickups
   let particles = [];
-  let bubbles = [];
-  let starfish = [];
-  let seaweed = [];
+  let clouds = [];
   let wave = 1;
   let phase = 1;
   let phaseBannerTimer = 0;
@@ -64,21 +67,12 @@
   let pointerX = null;
   let pointerY = null;
 
-  const DEPTH_THEMES = [
-    ['#1f6f8b', '#052a3a'],
-    ['#145374', '#031c2b'],
-    ['#0b3d5c', '#020f1c'],
-    ['#3a1c5c', '#0a0416'],
-  ];
-  function themeForPhase(p) {
-    return DEPTH_THEMES[Math.min(p - 1, DEPTH_THEMES.length - 1)];
-  }
   function phaseForWave(w) {
     return Math.floor((w - 1) / 3) + 1;
   }
 
   function playerMinY() { return 76; }
-  function playerMaxY() { return H - FLOOR_H - player.h - 6; }
+  function playerMaxY() { return H - GROUND_MARGIN - player.h - 6; }
 
   function resetPlayer() {
     player.x = W / 2 - player.w / 2;
@@ -89,39 +83,66 @@
     player.fireCooldown = 0;
   }
 
-  function initBubbles() {
-    bubbles = [];
-    for (let i = 0; i < 50; i++) {
-      bubbles.push({
-        x: Math.random() * W,
-        y: Math.random() * H,
-        r: Math.random() * 3 + 1.5,
-        speed: Math.random() * 40 + 20,
-        wobble: Math.random() * Math.PI * 2,
-      });
+  // ---------- Corn field background (baked onto an offscreen canvas so the
+  // harvester leaves a permanent cut trail as it drives through the crop) ----------
+  function drawCornStalk(c, x, y) {
+    c.strokeStyle = '#2f6e21';
+    c.lineWidth = 3;
+    c.lineCap = 'round';
+    c.beginPath(); c.moveTo(x, y); c.lineTo(x - 7, y - 9); c.stroke();
+    c.beginPath(); c.moveTo(x, y); c.lineTo(x + 7, y - 9); c.stroke();
+    c.strokeStyle = '#3f8a2c';
+    c.beginPath(); c.moveTo(x, y); c.lineTo(x, y - 17); c.stroke();
+    c.fillStyle = '#e8c144';
+    c.beginPath();
+    c.ellipse(x, y - 19, 3, 6, 0, 0, Math.PI * 2);
+    c.fill();
+  }
+
+  function buildField() {
+    if (W <= 0 || H <= 0) return;
+    fieldCtx.fillStyle = '#4a8a2f';
+    fieldCtx.fillRect(0, 0, W, H);
+
+    const rowWidth = 32;
+    for (let rx = 0, i = 0; rx < W; rx += rowWidth, i++) {
+      fieldCtx.fillStyle = i % 2 === 0 ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.04)';
+      fieldCtx.fillRect(rx, 0, rowWidth, H);
+    }
+
+    for (let ry = 14; ry < H; ry += 28) {
+      for (let rx = rowWidth / 2; rx < W; rx += rowWidth) {
+        const jx = (Math.random() - 0.5) * 8;
+        const jy = (Math.random() - 0.5) * 8;
+        drawCornStalk(fieldCtx, rx + jx, ry + jy);
+      }
     }
   }
 
-  function initStarfish() {
-    starfish = [];
-    const count = 5;
-    for (let i = 0; i < count; i++) {
-      starfish.push({
-        x: (W / count) * i + (W / count) / 2 + (Math.random() * 24 - 12),
-        y: H - FLOOR_H * 0.4 + (Math.random() * 12 - 6),
-        size: Math.random() * 7 + 13,
-        rot: Math.random() * Math.PI,
-        phase: Math.random() * Math.PI * 2,
-        color: Math.random() < 0.5 ? '#ff7f50' : '#ffb347',
-      });
+  function cutField(x, y, w, h) {
+    fieldCtx.save();
+    fieldCtx.fillStyle = '#caa457';
+    fieldCtx.beginPath();
+    fieldCtx.ellipse(x, y, w / 2, h / 2, 0, 0, Math.PI * 2);
+    fieldCtx.fill();
+    fieldCtx.fillStyle = 'rgba(0,0,0,0.06)';
+    for (let i = 0; i < 3; i++) {
+      fieldCtx.beginPath();
+      fieldCtx.arc(x + (Math.random() - 0.5) * w * 0.6, y + (Math.random() - 0.5) * h * 0.6, 1.4, 0, Math.PI * 2);
+      fieldCtx.fill();
     }
-    seaweed = [];
-    const wCount = 4;
-    for (let i = 0; i < wCount; i++) {
-      seaweed.push({
-        x: (W / wCount) * i + (W / wCount) * 0.3 + Math.random() * 20,
-        height: Math.random() * 26 + 26,
-        phase: Math.random() * Math.PI * 2,
+    fieldCtx.restore();
+  }
+
+  function initClouds() {
+    clouds = [];
+    for (let i = 0; i < 4; i++) {
+      clouds.push({
+        x: Math.random() * W,
+        y: Math.random() * H * 0.6,
+        w: Math.random() * 90 + 70,
+        h: Math.random() * 26 + 20,
+        speed: Math.random() * 10 + 6,
       });
     }
   }
@@ -161,6 +182,18 @@
     enemyDropTimer = 0;
   }
 
+  function spawnPhaseHearts() {
+    for (let i = 0; i < 2; i++) {
+      hearts.push({
+        x: Math.random() * (W - 50) + 25,
+        y: -30 - i * 60,
+        w: 22, h: 20,
+        speed: Math.random() * 25 + 45,
+        wobble: Math.random() * Math.PI * 2,
+      });
+    }
+  }
+
   function startGame() {
     score = 0;
     wave = 1;
@@ -168,10 +201,12 @@
     bullets = [];
     enemyBullets = [];
     particles = [];
+    hearts = [];
     resetPlayer();
     buildWave();
-    initBubbles();
-    initStarfish();
+    buildField();
+    initClouds();
+    spawnPhaseHearts();
     updateHud();
     state = STATE.PLAYING;
     startScreen.classList.add('hidden');
@@ -249,7 +284,7 @@
     bullets.push({
       x: player.x + player.w / 2 - 3,
       y: player.y - 10,
-      w: 6, h: 14,
+      w: 7, h: 10,
       speed: 620,
     });
   }
@@ -258,7 +293,7 @@
     enemyBullets.push({
       x: enemy.x + enemy.w / 2 - 3,
       y: enemy.y + enemy.h,
-      w: 6, h: 14,
+      w: 6, h: 9,
       speed: 260 + wave * 12,
     });
   }
@@ -289,11 +324,10 @@
   function update(dt) {
     elapsed += dt;
 
-    // bubbles (ambient, animate even outside gameplay)
-    for (const b of bubbles) {
-      b.y -= b.speed * dt;
-      b.x += Math.sin(elapsed * 2 + b.wobble) * 8 * dt;
-      if (b.y < -10) { b.y = H + 10; b.x = Math.random() * W; }
+    // clouds drift regardless of game state
+    for (const c of clouds) {
+      c.x += c.speed * dt;
+      if (c.x - c.w > W) { c.x = -c.w; c.y = Math.random() * H * 0.6; }
     }
 
     if (phaseBannerTimer > 0) phaseBannerTimer -= dt;
@@ -324,8 +358,11 @@
     player.x = Math.max(6, Math.min(W - player.w - 6, player.x));
     player.y = Math.max(playerMinY(), Math.min(playerMaxY(), player.y));
 
-    const targetTilt = Math.max(-1, Math.min(1, desiredVX / 300)) * 0.32;
+    const targetTilt = Math.max(-1, Math.min(1, desiredVX / 300)) * 0.2;
     player.tilt += (targetTilt - player.tilt) * Math.min(1, dt * 8);
+
+    // the harvester cuts a trail through the corn as it drives
+    cutField(player.x + player.w / 2, player.y + player.h * 0.55, player.w * 1.35, player.h * 1.2);
 
     // firing: holding pointer down on canvas, or spacebar
     player.fireCooldown -= dt;
@@ -345,7 +382,14 @@
     enemyBullets.forEach(b => b.y += b.speed * dt);
     enemyBullets = enemyBullets.filter(b => b.y < H);
 
-    // enemy formation + organic swim movement
+    // hearts (extra-life pickups)
+    for (const h of hearts) {
+      h.y += h.speed * dt;
+      h.x += Math.sin(elapsed * 2 + h.wobble) * 18 * dt;
+    }
+    hearts = hearts.filter(h => h.y < H + 30);
+
+    // crow formation + organic swim movement
     let hitEdge = false;
     const aliveEnemies = enemies.filter(e => e.alive);
     const formSpeed = (40 + wave * 6) * (1 + (phase - 1) * 0.15);
@@ -379,20 +423,20 @@
       for (const e of aliveEnemies) if (!e.diving) e.y += 30 * dt;
     }
 
-    // enemy shooting + floor invasion check
-    const floorY = H - FLOOR_H;
+    // crow attacks + ground invasion check
+    const groundY = H - GROUND_MARGIN;
     for (const e of aliveEnemies) {
       e.shootCooldown -= dt;
       if (e.shootCooldown <= 0) {
         spawnEnemyBullet(e);
         e.shootCooldown = Math.random() * (4.5 - Math.min(wave * 0.2, 3)) + 1.5;
       }
-      if (e.y + e.h >= floorY) {
+      if (e.y + e.h >= groundY) {
         endGame();
       }
     }
 
-    // collisions: player bullets vs enemies
+    // collisions: corn kernels vs crows
     for (const b of bullets) {
       if (b.dead) continue;
       for (const e of aliveEnemies) {
@@ -403,7 +447,7 @@
           if (e.hp <= 0) {
             e.alive = false;
             score += 10 * wave;
-            spawnExplosion(e.x + e.w / 2, e.y + e.h / 2, '#ffcc00');
+            spawnExplosion(e.x + e.w / 2, e.y + e.h / 2, '#2b2b2b');
           } else {
             spawnExplosion(b.x, b.y, '#ffffff', 6);
           }
@@ -413,7 +457,18 @@
     bullets = bullets.filter(b => !b.dead);
     enemies = enemies.filter(e => e.alive);
 
-    // collisions: enemy bullets vs player
+    // pickups: harvester drives over a heart -> +1 life
+    for (const h of hearts) {
+      if (rectsOverlap(player, h)) {
+        h.dead = true;
+        player.lives += 1;
+        spawnExplosion(h.x + h.w / 2, h.y + h.h / 2, '#ff6b81', 10);
+        updateHud();
+      }
+    }
+    hearts = hearts.filter(h => !h.dead);
+
+    // collisions: crow pecks vs harvester
     if (player.invuln <= 0) {
       for (const b of enemyBullets) {
         if (rectsOverlap(b, player)) {
@@ -423,12 +478,12 @@
       }
       enemyBullets = enemyBullets.filter(b => !b.dead);
 
-      // collisions: player vs enemies (direct contact)
+      // collisions: harvester vs crows (direct contact)
       for (const e of enemies) {
         if (!e.alive) continue;
         if (rectsOverlap(player, e)) {
           e.alive = false;
-          spawnExplosion(e.x + e.w / 2, e.y + e.h / 2, '#ffcc00');
+          spawnExplosion(e.x + e.w / 2, e.y + e.h / 2, '#2b2b2b');
           hitPlayer();
           break;
         }
@@ -451,6 +506,7 @@
       if (newPhase !== phase) {
         phase = newPhase;
         phaseBannerTimer = 2.6;
+        spawnPhaseHearts();
       }
       buildWave();
     }
@@ -461,7 +517,7 @@
   function hitPlayer() {
     player.lives -= 1;
     player.invuln = 1.6;
-    spawnExplosion(player.x + player.w / 2, player.y + player.h / 2, '#00e5ff');
+    spawnExplosion(player.x + player.w / 2, player.y + player.h / 2, '#dff6ff');
     updateHud();
     if (player.lives <= 0) {
       endGame();
@@ -469,220 +525,192 @@
   }
 
   // ---------- Draw ----------
-  function drawSubmarine(x, y, w, h, color, glow, tilt) {
+  function drawHarvester(x, y, w, h, color, glow, tilt) {
     ctx.save();
     ctx.translate(x + w / 2, y + h / 2);
     ctx.rotate(tilt || 0);
-    ctx.shadowColor = glow || color;
-    ctx.shadowBlur = 12;
-    ctx.fillStyle = color;
 
     const bodyW = w;
     const bodyH = h * 0.5;
-    const bodyY = h * 0.1;
+    const bodyY = h * 0.14;
 
-    // hull
-    ctx.beginPath();
-    ctx.ellipse(0, bodyY, bodyW / 2, bodyH / 2, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // conning tower (sail)
-    ctx.beginPath();
-    ctx.moveTo(-w * 0.12, bodyY);
-    ctx.lineTo(-w * 0.12, -h * 0.34);
-    ctx.quadraticCurveTo(0, -h * 0.5, w * 0.12, -h * 0.34);
-    ctx.lineTo(w * 0.12, bodyY);
-    ctx.closePath();
-    ctx.fill();
-
-    // periscope
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(0, -h * 0.42);
-    ctx.lineTo(0, -h * 0.56);
-    ctx.stroke();
-
-    // tail (propeller end)
-    ctx.beginPath();
-    ctx.moveTo(-bodyW / 2, bodyY);
-    ctx.lineTo(-bodyW / 2 - w * 0.14, bodyY - h * 0.14);
-    ctx.lineTo(-bodyW / 2 - w * 0.14, bodyY + h * 0.14);
-    ctx.closePath();
-    ctx.fill();
-
-    // nose fin
-    ctx.beginPath();
-    ctx.moveTo(bodyW / 2, bodyY);
-    ctx.lineTo(bodyW / 2 + w * 0.1, bodyY - h * 0.08);
-    ctx.lineTo(bodyW / 2 + w * 0.1, bodyY + h * 0.08);
-    ctx.closePath();
-    ctx.fill();
-
-    // portholes
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    [-bodyW * 0.18, 0, bodyW * 0.18].forEach(px => {
+    // rear wheels
+    ctx.fillStyle = '#1c1c1c';
+    [-1, 1].forEach(side => {
       ctx.beginPath();
-      ctx.arc(px, bodyY, Math.max(2, w * 0.035), 0, Math.PI * 2);
+      ctx.arc(side * bodyW * 0.32, bodyY + bodyH * 0.4, h * 0.16, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#5a5a5a';
+      ctx.beginPath();
+      ctx.arc(side * bodyW * 0.32, bodyY + bodyH * 0.4, h * 0.07, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#1c1c1c';
+    });
+    // front small wheels
+    [-1, 1].forEach(side => {
+      ctx.beginPath();
+      ctx.arc(side * bodyW * 0.3, -h * 0.05, h * 0.1, 0, Math.PI * 2);
       ctx.fill();
     });
+
+    // body chassis
+    ctx.shadowColor = glow || color;
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(-bodyW / 2, bodyY - bodyH / 2, bodyW, bodyH, 7);
+    else ctx.rect(-bodyW / 2, bodyY - bodyH / 2, bodyW, bodyH);
+    ctx.fill();
+
+    // corn header (front intake, top since it fires kernels upward)
+    ctx.fillStyle = '#3f7ea6';
+    ctx.beginPath();
+    ctx.moveTo(-bodyW * 0.46, -h * 0.08);
+    ctx.lineTo(bodyW * 0.46, -h * 0.08);
+    ctx.lineTo(bodyW * 0.34, -h * 0.42);
+    ctx.lineTo(-bodyW * 0.34, -h * 0.42);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 1;
+    for (let i = -2; i <= 2; i++) {
+      ctx.beginPath();
+      ctx.moveTo(i * bodyW * 0.15, -h * 0.08);
+      ctx.lineTo(i * bodyW * 0.12, -h * 0.4);
+      ctx.stroke();
+    }
+
+    // cab
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#dff6ff';
+    ctx.strokeStyle = '#2b8bb0';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.rect(-w * 0.09, bodyY - bodyH * 0.6, w * 0.24, bodyH * 0.55);
+    ctx.fill();
+    ctx.stroke();
+
+    // exhaust pipe
+    ctx.fillStyle = '#333';
+    ctx.fillRect(w * 0.22, bodyY - bodyH * 0.85, w * 0.05, bodyH * 0.5);
 
     ctx.restore();
   }
 
-  function drawFish(e) {
-    const colors = ['#ff3b6e', '#7c4dff', '#00e5a8'];
+  function drawCrow(e) {
+    const colors = ['#161616', '#eef1f3', '#8d949b'];
     const color = colors[e.type];
     const w = e.w, h = e.h;
     ctx.save();
     ctx.translate(e.x + w / 2, e.y + h / 2);
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 10;
+    ctx.shadowColor = e.type === 1 ? '#c7ccd1' : color;
+    ctx.shadowBlur = 9;
     ctx.fillStyle = color;
 
-    // tail fin (up top, fish head points down toward the player)
+    // tail feathers (top, opposite the beak which points down at the harvester)
     ctx.beginPath();
-    ctx.moveTo(0, -h * 0.18);
-    ctx.lineTo(-w * 0.22, -h * 0.62);
-    ctx.lineTo(w * 0.22, -h * 0.62);
+    ctx.moveTo(0, -h * 0.1);
+    ctx.lineTo(-w * 0.2, -h * 0.56);
+    ctx.lineTo(0, -h * 0.38);
+    ctx.lineTo(w * 0.2, -h * 0.56);
+    ctx.closePath();
+    ctx.fill();
+
+    // wings spread to the sides
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.1, -h * 0.04);
+    ctx.quadraticCurveTo(-w * 0.62, -h * 0.06, -w * 0.56, h * 0.22);
+    ctx.quadraticCurveTo(-w * 0.28, h * 0.1, -w * 0.08, h * 0.14);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(w * 0.1, -h * 0.04);
+    ctx.quadraticCurveTo(w * 0.62, -h * 0.06, w * 0.56, h * 0.22);
+    ctx.quadraticCurveTo(w * 0.28, h * 0.1, w * 0.08, h * 0.14);
     ctx.closePath();
     ctx.fill();
 
     // body
     ctx.beginPath();
-    ctx.ellipse(0, 0, w * 0.34, h * 0.42, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, h * 0.05, w * 0.22, h * 0.34, 0, 0, Math.PI * 2);
     ctx.fill();
+    if (e.type === 1) {
+      ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
 
-    // side fins
+    // head
     ctx.beginPath();
-    ctx.moveTo(-w * 0.32, -h * 0.02);
-    ctx.lineTo(-w * 0.52, h * 0.12);
-    ctx.lineTo(-w * 0.28, h * 0.18);
-    ctx.closePath();
+    ctx.arc(0, h * 0.32, w * 0.16, 0, Math.PI * 2);
     ctx.fill();
+    if (e.type === 1) {
+      ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+      ctx.stroke();
+    }
+
+    // beak
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#f5a623';
     ctx.beginPath();
-    ctx.moveTo(w * 0.32, -h * 0.02);
-    ctx.lineTo(w * 0.52, h * 0.12);
-    ctx.lineTo(w * 0.28, h * 0.18);
+    ctx.moveTo(-w * 0.07, h * 0.42);
+    ctx.lineTo(0, h * 0.58);
+    ctx.lineTo(w * 0.07, h * 0.42);
     ctx.closePath();
     ctx.fill();
 
     // eye
-    ctx.shadowBlur = 0;
     ctx.fillStyle = '#fff';
     ctx.beginPath();
-    ctx.arc(-w * 0.1, h * 0.18, w * 0.09, 0, Math.PI * 2);
+    ctx.arc(-w * 0.06, h * 0.28, w * 0.045, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#001122';
+    ctx.fillStyle = '#000';
     ctx.beginPath();
-    ctx.arc(-w * 0.1, h * 0.2, w * 0.045, 0, Math.PI * 2);
+    ctx.arc(-w * 0.06, h * 0.28, w * 0.02, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
   }
 
-  function drawStar(cx, cy, spikes, outerR, innerR, rot, color) {
+  function drawKernel(b) {
     ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(rot);
-    ctx.beginPath();
-    for (let i = 0; i < spikes * 2; i++) {
-      const r = i % 2 === 0 ? outerR : innerR;
-      const ang = (Math.PI / spikes) * i - Math.PI / 2;
-      const px = Math.cos(ang) * r, py = Math.sin(ang) * r;
-      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-    }
-    ctx.closePath();
-    ctx.fillStyle = color;
-    ctx.shadowColor = color;
+    ctx.translate(b.x + b.w / 2, b.y + b.h / 2);
+    ctx.shadowColor = '#ffd23f';
     ctx.shadowBlur = 6;
-    ctx.fill();
-    ctx.restore();
-  }
-
-  function drawOceanBackground() {
-    const [topColor, bottomColor] = themeForPhase(phase);
-    const grad = ctx.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, topColor);
-    grad.addColorStop(1, bottomColor);
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, W, H);
-
-    // soft light shafts from the surface
-    ctx.save();
-    ctx.globalAlpha = 0.06;
-    ctx.fillStyle = '#ffffff';
-    for (let i = 0; i < 3; i++) {
-      const sx = (W / 3) * i + Math.sin(elapsed * 0.3 + i) * 20;
-      ctx.beginPath();
-      ctx.moveTo(sx, 0);
-      ctx.lineTo(sx + 60, 0);
-      ctx.lineTo(sx - 40, H);
-      ctx.lineTo(sx - 120, H);
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.restore();
-
-    // bubbles
-    for (const b of bubbles) {
-      ctx.beginPath();
-      ctx.fillStyle = 'rgba(255,255,255,0.35)';
-      ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.fillStyle = 'rgba(255,255,255,0.7)';
-      ctx.arc(b.x - b.r * 0.3, b.y - b.r * 0.3, b.r * 0.3, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  function drawFloor() {
-    const floorY = H - FLOOR_H;
+    ctx.fillStyle = '#ffd23f';
     ctx.beginPath();
-    ctx.moveTo(0, floorY);
-    const segments = 10;
-    for (let i = 0; i <= segments; i++) {
-      const x = (W / segments) * i;
-      const y = floorY + Math.sin(elapsed * 0.6 + i * 0.8) * 4;
-      ctx.lineTo(x, y);
-    }
-    ctx.lineTo(W, H);
-    ctx.lineTo(0, H);
-    ctx.closePath();
-    const grad = ctx.createLinearGradient(0, floorY, 0, H);
-    grad.addColorStop(0, '#e8d190');
-    grad.addColorStop(1, '#9c7f42');
-    ctx.fillStyle = grad;
+    ctx.ellipse(0, 0, b.w / 2, b.h / 2, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.beginPath();
+    ctx.ellipse(-b.w * 0.15, -b.h * 0.2, b.w * 0.18, b.h * 0.18, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
 
-    ctx.fillStyle = 'rgba(0,0,0,0.08)';
-    for (let i = 0; i < 40; i++) {
-      const gx = (i * 53.7) % W;
-      const gy = floorY + 10 + (i * 13) % (FLOOR_H - 14);
-      ctx.beginPath();
-      ctx.arc(gx, gy, 1.3, 0, Math.PI * 2);
-      ctx.fill();
-    }
+  function drawPeck(b) {
+    ctx.save();
+    ctx.translate(b.x + b.w / 2, b.y + b.h / 2);
+    ctx.rotate(0.4);
+    ctx.shadowColor = '#2b2b2b';
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = '#2b2b2b';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, b.w / 2, b.h / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
 
-    // seaweed
-    ctx.strokeStyle = '#2e8b57';
-    ctx.lineWidth = 4;
-    ctx.lineCap = 'round';
-    for (const s of seaweed) {
-      const sway = Math.sin(elapsed * 1.4 + s.phase) * 10;
-      ctx.beginPath();
-      ctx.moveTo(s.x, H - 4);
-      ctx.quadraticCurveTo(s.x + sway, H - s.height * 0.6, s.x + sway * 1.4, H - s.height);
-      ctx.stroke();
-    }
-
-    // starfish
-    for (const sf of starfish) {
-      const pulse = 1 + Math.sin(elapsed * 1.5 + sf.phase) * 0.06;
-      drawStar(sf.x, sf.y, 5, sf.size * pulse, sf.size * 0.45 * pulse, sf.rot, sf.color);
-    }
+  function drawHeart(h) {
+    ctx.save();
+    ctx.font = `${h.h + 8}px serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = '#ff4d6d';
+    ctx.shadowBlur = 10;
+    ctx.fillText('❤️', h.x + h.w / 2, h.y + h.h / 2);
+    ctx.restore();
   }
 
   function drawPhaseBanner() {
@@ -691,39 +719,48 @@
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#baf5ff';
-    ctx.shadowColor = '#00e5ff';
+    ctx.fillStyle = '#fff6d9';
+    ctx.shadowColor = '#ffb347';
     ctx.shadowBlur = 18;
     ctx.font = 'bold 34px Trebuchet MS, Arial, sans-serif';
     ctx.fillText(`FASE ${phase}`, W / 2, H / 2 - 10);
     ctx.font = '16px Trebuchet MS, Arial, sans-serif';
-    ctx.fillText('As águas ficam mais profundas...', W / 2, H / 2 + 20);
+    ctx.fillText('Mais corvos estão chegando...', W / 2, H / 2 + 20);
     ctx.restore();
+  }
+
+  function drawSky() {
+    for (const c of clouds) {
+      ctx.save();
+      ctx.globalAlpha = 0.1;
+      ctx.fillStyle = '#0a1a05';
+      ctx.beginPath();
+      ctx.ellipse(c.x, c.y, c.w / 2, c.h / 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
   }
 
   function draw() {
     ctx.clearRect(0, 0, W, H);
-    drawOceanBackground();
+    ctx.drawImage(fieldCanvas, 0, 0);
+    drawSky();
 
     if (state === STATE.PLAYING) {
       // player
       if (player.invuln <= 0 || Math.floor(player.invuln * 12) % 2 === 0) {
-        drawSubmarine(player.x, player.y, player.w, player.h, '#00e5ff', '#00e5ff', player.tilt);
+        drawHarvester(player.x, player.y, player.w, player.h, '#6ec6f1', '#bfeaff', player.tilt);
       }
 
-      // enemies
-      for (const e of enemies) drawFish(e);
+      // crows
+      for (const e of enemies) drawCrow(e);
+
+      // hearts
+      for (const h of hearts) drawHeart(h);
 
       // bullets
-      ctx.fillStyle = '#00ffea';
-      ctx.shadowColor = '#00ffea';
-      ctx.shadowBlur = 8;
-      for (const b of bullets) ctx.fillRect(b.x, b.y, b.w, b.h);
-
-      ctx.fillStyle = '#ff4455';
-      ctx.shadowColor = '#ff4455';
-      for (const b of enemyBullets) ctx.fillRect(b.x, b.y, b.w, b.h);
-      ctx.shadowBlur = 0;
+      for (const b of bullets) drawKernel(b);
+      for (const b of enemyBullets) drawPeck(b);
 
       // particles
       for (const p of particles) {
@@ -735,11 +772,9 @@
         ctx.fill();
       }
       ctx.globalAlpha = 1;
+
+      drawPhaseBanner();
     }
-
-    drawFloor();
-
-    if (state === STATE.PLAYING) drawPhaseBanner();
   }
 
   function loop(timestamp) {
@@ -755,5 +790,6 @@
   }
 
   resize();
+  initClouds();
   requestAnimationFrame(loop);
 })();
