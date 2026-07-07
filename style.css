@@ -41,6 +41,7 @@ canvas {
   right: 0;
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
   padding: 12px 16px;
   color: #fff;
   font-size: 16px;
@@ -48,6 +49,12 @@ canvas {
   text-shadow: 0 0 6px #0ff, 0 0 2px #000;
   pointer-events: none;
   z-index: 5;
+}
+
+#level {
+  font-size: 13px;
+  color: #baf5ff;
+  text-align: center;
 }
 
 #lives {

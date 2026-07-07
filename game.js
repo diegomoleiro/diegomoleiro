@@ -5,6 +5,7 @@
   const ctx = canvas.getContext('2d');
   const container = document.getElementById('game-container');
   const scoreEl = document.getElementById('score');
+  const levelEl = document.getElementById('level');
   const livesEl = document.getElementById('lives');
   const startScreen = document.getElementById('startScreen');
   const gameOverScreen = document.getElementById('gameOverScreen');
@@ -13,6 +14,7 @@
   const restartBtn = document.getElementById('restartBtn');
 
   let W = 0, H = 0, DPR = 1;
+  const FLOOR_H = 70;
 
   function resize() {
     const rect = container.getBoundingClientRect();
@@ -22,9 +24,10 @@
     canvas.width = W * DPR;
     canvas.height = H * DPR;
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    initBubbles();
+    initStarfish();
   }
   window.addEventListener('resize', resize);
-  resize();
 
   // ---------- Game state ----------
   const STATE = { MENU: 'menu', PLAYING: 'playing', OVER: 'over' };
@@ -33,7 +36,8 @@
   const player = {
     w: 54, h: 38,
     x: 0, y: 0,
-    speed: 420,
+    speed: 380,
+    tilt: 0,
     fireCooldown: 0,
     fireRate: 0.22,
     lives: 3,
@@ -45,31 +49,79 @@
   let enemyBullets = [];
   let enemies = [];
   let particles = [];
-  let stars = [];
+  let bubbles = [];
+  let starfish = [];
+  let seaweed = [];
   let wave = 1;
+  let phase = 1;
+  let phaseBannerTimer = 0;
   let enemyDir = 1;
   let enemyDropTimer = 0;
+  let elapsed = 0;
 
-  let keys = { left: false, right: false, fire: false };
+  let keys = { left: false, right: false, up: false, down: false, fire: false };
   let pointerDown = false;
   let pointerX = null;
+  let pointerY = null;
+
+  const DEPTH_THEMES = [
+    ['#1f6f8b', '#052a3a'],
+    ['#145374', '#031c2b'],
+    ['#0b3d5c', '#020f1c'],
+    ['#3a1c5c', '#0a0416'],
+  ];
+  function themeForPhase(p) {
+    return DEPTH_THEMES[Math.min(p - 1, DEPTH_THEMES.length - 1)];
+  }
+  function phaseForWave(w) {
+    return Math.floor((w - 1) / 3) + 1;
+  }
+
+  function playerMinY() { return 76; }
+  function playerMaxY() { return H - FLOOR_H - player.h - 6; }
 
   function resetPlayer() {
     player.x = W / 2 - player.w / 2;
-    player.y = H - player.h - 26;
+    player.y = playerMaxY();
+    player.tilt = 0;
     player.lives = 3;
     player.invuln = 0;
     player.fireCooldown = 0;
   }
 
-  function initStars() {
-    stars = [];
-    for (let i = 0; i < 80; i++) {
-      stars.push({
+  function initBubbles() {
+    bubbles = [];
+    for (let i = 0; i < 50; i++) {
+      bubbles.push({
         x: Math.random() * W,
         y: Math.random() * H,
-        r: Math.random() * 1.6 + 0.4,
-        speed: Math.random() * 60 + 20,
+        r: Math.random() * 3 + 1.5,
+        speed: Math.random() * 40 + 20,
+        wobble: Math.random() * Math.PI * 2,
+      });
+    }
+  }
+
+  function initStarfish() {
+    starfish = [];
+    const count = 5;
+    for (let i = 0; i < count; i++) {
+      starfish.push({
+        x: (W / count) * i + (W / count) / 2 + (Math.random() * 24 - 12),
+        y: H - FLOOR_H * 0.4 + (Math.random() * 12 - 6),
+        size: Math.random() * 7 + 13,
+        rot: Math.random() * Math.PI,
+        phase: Math.random() * Math.PI * 2,
+        color: Math.random() < 0.5 ? '#ff7f50' : '#ffb347',
+      });
+    }
+    seaweed = [];
+    const wCount = 4;
+    for (let i = 0; i < wCount; i++) {
+      seaweed.push({
+        x: (W / wCount) * i + (W / wCount) * 0.3 + Math.random() * 20,
+        height: Math.random() * 26 + 26,
+        phase: Math.random() * Math.PI * 2,
       });
     }
   }
@@ -82,18 +134,26 @@
     const spacingX = (W - marginX * 2) / cols;
     const spacingY = 46;
     const startY = 50;
-    const speedBoost = 1 + (wave - 1) * 0.12;
+    const speedBoost = (1 + (wave - 1) * 0.12) * (1 + (phase - 1) * 0.15);
+    const hp = Math.min(1 + Math.floor((phase - 1) / 2), 3);
 
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
+        const baseX = marginX + c * spacingX + spacingX / 2 - 16;
         enemies.push({
-          x: marginX + c * spacingX + spacingX / 2 - 16,
+          baseX,
+          x: baseX,
           y: startY + r * spacingY,
           w: 32, h: 28,
           alive: true,
+          hp,
           shootCooldown: Math.random() * 3 + 1,
           type: r % 3,
           speedBoost,
+          waveAmp: Math.random() * 10 + 8,
+          phaseOffset: Math.random() * Math.PI * 2,
+          diving: false,
+          diveCooldown: Math.random() * 5 + 4,
         });
       }
     }
@@ -104,12 +164,14 @@
   function startGame() {
     score = 0;
     wave = 1;
+    phase = phaseForWave(wave);
     bullets = [];
     enemyBullets = [];
     particles = [];
     resetPlayer();
     buildWave();
-    initStars();
+    initBubbles();
+    initStarfish();
     updateHud();
     state = STATE.PLAYING;
     startScreen.classList.add('hidden');
@@ -124,6 +186,7 @@
 
   function updateHud() {
     scoreEl.textContent = `Pontos: ${score}`;
+    levelEl.textContent = `Fase ${phase} • Onda ${wave}`;
     livesEl.textContent = 'Vidas: ' + '❤️'.repeat(Math.max(player.lives, 0));
   }
 
@@ -131,33 +194,42 @@
   window.addEventListener('keydown', (e) => {
     if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
     if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
+    if (e.code === 'ArrowUp' || e.code === 'KeyW') keys.up = true;
+    if (e.code === 'ArrowDown' || e.code === 'KeyS') keys.down = true;
     if (e.code === 'Space') { keys.fire = true; e.preventDefault(); }
   });
   window.addEventListener('keyup', (e) => {
     if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
     if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
+    if (e.code === 'ArrowUp' || e.code === 'KeyW') keys.up = false;
+    if (e.code === 'ArrowDown' || e.code === 'KeyS') keys.down = false;
     if (e.code === 'Space') keys.fire = false;
   });
 
   function pointerFromEvent(e) {
     const rect = canvas.getBoundingClientRect();
     const t = e.touches ? e.touches[0] : e;
-    return t.clientX - rect.left;
+    return { x: t.clientX - rect.left, y: t.clientY - rect.top };
   }
 
   function onPointerDown(e) {
     pointerDown = true;
-    pointerX = pointerFromEvent(e);
+    const p = pointerFromEvent(e);
+    pointerX = p.x;
+    pointerY = p.y;
     e.preventDefault();
   }
   function onPointerMove(e) {
     if (!pointerDown) return;
-    pointerX = pointerFromEvent(e);
+    const p = pointerFromEvent(e);
+    pointerX = p.x;
+    pointerY = p.y;
     e.preventDefault();
   }
   function onPointerUp(e) {
     pointerDown = false;
     pointerX = null;
+    pointerY = null;
     if (e) e.preventDefault();
   }
 
@@ -191,8 +263,8 @@
     });
   }
 
-  function spawnExplosion(x, y, color) {
-    for (let i = 0; i < 14; i++) {
+  function spawnExplosion(x, y, color, count) {
+    for (let i = 0; i < (count || 14); i++) {
       const angle = Math.random() * Math.PI * 2;
       const speed = Math.random() * 140 + 40;
       particles.push({
@@ -215,27 +287,45 @@
   let lastTime = null;
 
   function update(dt) {
-    // stars
-    for (const s of stars) {
-      s.y += s.speed * dt;
-      if (s.y > H) { s.y = 0; s.x = Math.random() * W; }
+    elapsed += dt;
+
+    // bubbles (ambient, animate even outside gameplay)
+    for (const b of bubbles) {
+      b.y -= b.speed * dt;
+      b.x += Math.sin(elapsed * 2 + b.wobble) * 8 * dt;
+      if (b.y < -10) { b.y = H + 10; b.x = Math.random() * W; }
     }
+
+    if (phaseBannerTimer > 0) phaseBannerTimer -= dt;
 
     if (state !== STATE.PLAYING) return;
 
-    // player movement
-    let moveDir = 0;
-    if (keys.left) moveDir -= 1;
-    if (keys.right) moveDir += 1;
+    // player movement (free roam: left/right + forward/back)
+    let moveDirX = 0, moveDirY = 0;
+    if (keys.left) moveDirX -= 1;
+    if (keys.right) moveDirX += 1;
+    if (keys.up) moveDirY -= 1;
+    if (keys.down) moveDirY += 1;
+
+    let desiredVX = moveDirX * player.speed;
 
     if (pointerDown && pointerX !== null) {
       const targetX = pointerX - player.w / 2;
       const dx = targetX - player.x;
+      desiredVX = dx * Math.min(1, dt * 12) / Math.max(dt, 0.001);
       player.x += dx * Math.min(1, dt * 12);
+      const targetY = pointerY - player.h / 2;
+      const dy = targetY - player.y;
+      player.y += dy * Math.min(1, dt * 12);
     } else {
-      player.x += moveDir * player.speed * dt;
+      player.x += moveDirX * player.speed * dt;
+      player.y += moveDirY * player.speed * dt;
     }
     player.x = Math.max(6, Math.min(W - player.w - 6, player.x));
+    player.y = Math.max(playerMinY(), Math.min(playerMaxY(), player.y));
+
+    const targetTilt = Math.max(-1, Math.min(1, desiredVX / 300)) * 0.32;
+    player.tilt += (targetTilt - player.tilt) * Math.min(1, dt * 8);
 
     // firing: holding pointer down on canvas, or spacebar
     player.fireCooldown -= dt;
@@ -255,13 +345,30 @@
     enemyBullets.forEach(b => b.y += b.speed * dt);
     enemyBullets = enemyBullets.filter(b => b.y < H);
 
-    // enemy formation movement
+    // enemy formation + organic swim movement
     let hitEdge = false;
     const aliveEnemies = enemies.filter(e => e.alive);
-    const formSpeed = (40 + wave * 6);
+    const formSpeed = (40 + wave * 6) * (1 + (phase - 1) * 0.15);
+    const descendSpeed = (16 + wave * 2) * (1 + (phase - 1) * 0.2);
+
     for (const e of aliveEnemies) {
-      e.x += enemyDir * formSpeed * e.speedBoost * dt;
-      if (e.x < 10 || e.x + e.w > W - 10) hitEdge = true;
+      if (phase >= 2 && !e.diving) {
+        e.diveCooldown -= dt;
+        if (e.diveCooldown <= 0) {
+          e.diving = true;
+        }
+      }
+
+      if (e.diving) {
+        const targetCx = player.x + player.w / 2;
+        e.x += (targetCx - (e.x + e.w / 2)) * Math.min(1, dt * 1.5);
+        e.y += descendSpeed * 2.6 * dt;
+      } else {
+        e.baseX += enemyDir * formSpeed * e.speedBoost * dt;
+        e.x = e.baseX + Math.sin(elapsed * 2 + e.phaseOffset) * e.waveAmp;
+        e.y += descendSpeed * dt;
+        if (e.baseX < 10 || e.baseX + e.w > W - 10) hitEdge = true;
+      }
     }
     if (hitEdge) {
       enemyDir *= -1;
@@ -269,30 +376,37 @@
     }
     if (enemyDropTimer > 0) {
       enemyDropTimer -= dt;
-      for (const e of aliveEnemies) e.y += 30 * dt;
+      for (const e of aliveEnemies) if (!e.diving) e.y += 30 * dt;
     }
 
-    // enemy shooting
+    // enemy shooting + floor invasion check
+    const floorY = H - FLOOR_H;
     for (const e of aliveEnemies) {
       e.shootCooldown -= dt;
       if (e.shootCooldown <= 0) {
         spawnEnemyBullet(e);
         e.shootCooldown = Math.random() * (4.5 - Math.min(wave * 0.2, 3)) + 1.5;
       }
-      if (e.y + e.h >= player.y) {
+      if (e.y + e.h >= floorY) {
         endGame();
       }
     }
 
     // collisions: player bullets vs enemies
     for (const b of bullets) {
+      if (b.dead) continue;
       for (const e of aliveEnemies) {
-        if (!e.alive) continue;
+        if (!e.alive || b.dead) continue;
         if (rectsOverlap(b, e)) {
-          e.alive = false;
           b.dead = true;
-          score += 10 * wave;
-          spawnExplosion(e.x + e.w / 2, e.y + e.h / 2, '#ffcc00');
+          e.hp -= 1;
+          if (e.hp <= 0) {
+            e.alive = false;
+            score += 10 * wave;
+            spawnExplosion(e.x + e.w / 2, e.y + e.h / 2, '#ffcc00');
+          } else {
+            spawnExplosion(b.x, b.y, '#ffffff', 6);
+          }
         }
       }
     }
@@ -308,6 +422,18 @@
         }
       }
       enemyBullets = enemyBullets.filter(b => !b.dead);
+
+      // collisions: player vs enemies (direct contact)
+      for (const e of enemies) {
+        if (!e.alive) continue;
+        if (rectsOverlap(player, e)) {
+          e.alive = false;
+          spawnExplosion(e.x + e.w / 2, e.y + e.h / 2, '#ffcc00');
+          hitPlayer();
+          break;
+        }
+      }
+      enemies = enemies.filter(e => e.alive);
     }
 
     // particles
@@ -321,6 +447,11 @@
     // wave clear
     if (enemies.length === 0) {
       wave += 1;
+      const newPhase = phaseForWave(wave);
+      if (newPhase !== phase) {
+        phase = newPhase;
+        phaseBannerTimer = 2.6;
+      }
       buildWave();
     }
 
@@ -338,9 +469,10 @@
   }
 
   // ---------- Draw ----------
-  function drawSubmarine(x, y, w, h, color, glow) {
+  function drawSubmarine(x, y, w, h, color, glow, tilt) {
     ctx.save();
     ctx.translate(x + w / 2, y + h / 2);
+    ctx.rotate(tilt || 0);
     ctx.shadowColor = glow || color;
     ctx.shadowBlur = 12;
     ctx.fillStyle = color;
@@ -450,50 +582,164 @@
     ctx.restore();
   }
 
+  function drawStar(cx, cy, spikes, outerR, innerR, rot, color) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(rot);
+    ctx.beginPath();
+    for (let i = 0; i < spikes * 2; i++) {
+      const r = i % 2 === 0 ? outerR : innerR;
+      const ang = (Math.PI / spikes) * i - Math.PI / 2;
+      const px = Math.cos(ang) * r, py = Math.sin(ang) * r;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 6;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawOceanBackground() {
+    const [topColor, bottomColor] = themeForPhase(phase);
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, topColor);
+    grad.addColorStop(1, bottomColor);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    // soft light shafts from the surface
+    ctx.save();
+    ctx.globalAlpha = 0.06;
+    ctx.fillStyle = '#ffffff';
+    for (let i = 0; i < 3; i++) {
+      const sx = (W / 3) * i + Math.sin(elapsed * 0.3 + i) * 20;
+      ctx.beginPath();
+      ctx.moveTo(sx, 0);
+      ctx.lineTo(sx + 60, 0);
+      ctx.lineTo(sx - 40, H);
+      ctx.lineTo(sx - 120, H);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // bubbles
+    for (const b of bubbles) {
+      ctx.beginPath();
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.arc(b.x - b.r * 0.3, b.y - b.r * 0.3, b.r * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawFloor() {
+    const floorY = H - FLOOR_H;
+    ctx.beginPath();
+    ctx.moveTo(0, floorY);
+    const segments = 10;
+    for (let i = 0; i <= segments; i++) {
+      const x = (W / segments) * i;
+      const y = floorY + Math.sin(elapsed * 0.6 + i * 0.8) * 4;
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(W, H);
+    ctx.lineTo(0, H);
+    ctx.closePath();
+    const grad = ctx.createLinearGradient(0, floorY, 0, H);
+    grad.addColorStop(0, '#e8d190');
+    grad.addColorStop(1, '#9c7f42');
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(0,0,0,0.08)';
+    for (let i = 0; i < 40; i++) {
+      const gx = (i * 53.7) % W;
+      const gy = floorY + 10 + (i * 13) % (FLOOR_H - 14);
+      ctx.beginPath();
+      ctx.arc(gx, gy, 1.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // seaweed
+    ctx.strokeStyle = '#2e8b57';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    for (const s of seaweed) {
+      const sway = Math.sin(elapsed * 1.4 + s.phase) * 10;
+      ctx.beginPath();
+      ctx.moveTo(s.x, H - 4);
+      ctx.quadraticCurveTo(s.x + sway, H - s.height * 0.6, s.x + sway * 1.4, H - s.height);
+      ctx.stroke();
+    }
+
+    // starfish
+    for (const sf of starfish) {
+      const pulse = 1 + Math.sin(elapsed * 1.5 + sf.phase) * 0.06;
+      drawStar(sf.x, sf.y, 5, sf.size * pulse, sf.size * 0.45 * pulse, sf.rot, sf.color);
+    }
+  }
+
+  function drawPhaseBanner() {
+    if (phaseBannerTimer <= 0) return;
+    const alpha = Math.min(1, phaseBannerTimer / 1.2);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#baf5ff';
+    ctx.shadowColor = '#00e5ff';
+    ctx.shadowBlur = 18;
+    ctx.font = 'bold 34px Trebuchet MS, Arial, sans-serif';
+    ctx.fillText(`FASE ${phase}`, W / 2, H / 2 - 10);
+    ctx.font = '16px Trebuchet MS, Arial, sans-serif';
+    ctx.fillText('As águas ficam mais profundas...', W / 2, H / 2 + 20);
+    ctx.restore();
+  }
+
   function draw() {
     ctx.clearRect(0, 0, W, H);
+    drawOceanBackground();
 
-    // stars
-    ctx.fillStyle = '#ffffff';
-    for (const s of stars) {
-      ctx.globalAlpha = 0.6;
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-      ctx.fill();
+    if (state === STATE.PLAYING) {
+      // player
+      if (player.invuln <= 0 || Math.floor(player.invuln * 12) % 2 === 0) {
+        drawSubmarine(player.x, player.y, player.w, player.h, '#00e5ff', '#00e5ff', player.tilt);
+      }
+
+      // enemies
+      for (const e of enemies) drawFish(e);
+
+      // bullets
+      ctx.fillStyle = '#00ffea';
+      ctx.shadowColor = '#00ffea';
+      ctx.shadowBlur = 8;
+      for (const b of bullets) ctx.fillRect(b.x, b.y, b.w, b.h);
+
+      ctx.fillStyle = '#ff4455';
+      ctx.shadowColor = '#ff4455';
+      for (const b of enemyBullets) ctx.fillRect(b.x, b.y, b.w, b.h);
+      ctx.shadowBlur = 0;
+
+      // particles
+      for (const p of particles) {
+        const alpha = 1 - p.age / p.life;
+        ctx.globalAlpha = Math.max(alpha, 0);
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
     }
-    ctx.globalAlpha = 1;
 
-    if (state !== STATE.PLAYING) return;
+    drawFloor();
 
-    // player
-    if (player.invuln <= 0 || Math.floor(player.invuln * 12) % 2 === 0) {
-      drawSubmarine(player.x, player.y, player.w, player.h, '#00e5ff', '#00e5ff');
-    }
-
-    // enemies
-    for (const e of enemies) drawFish(e);
-
-    // bullets
-    ctx.fillStyle = '#00ffea';
-    ctx.shadowColor = '#00ffea';
-    ctx.shadowBlur = 8;
-    for (const b of bullets) ctx.fillRect(b.x, b.y, b.w, b.h);
-
-    ctx.fillStyle = '#ff4455';
-    ctx.shadowColor = '#ff4455';
-    for (const b of enemyBullets) ctx.fillRect(b.x, b.y, b.w, b.h);
-    ctx.shadowBlur = 0;
-
-    // particles
-    for (const p of particles) {
-      const alpha = 1 - p.age / p.life;
-      ctx.globalAlpha = Math.max(alpha, 0);
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
+    if (state === STATE.PLAYING) drawPhaseBanner();
   }
 
   function loop(timestamp) {
@@ -508,6 +754,6 @@
     requestAnimationFrame(loop);
   }
 
-  initStars();
+  resize();
   requestAnimationFrame(loop);
 })();
