@@ -85,6 +85,13 @@ canvas {
   text-shadow: 0 0 6px #ff8800, 0 0 2px #000;
 }
 
+#shieldInfo {
+  font-size: 12px;
+  min-height: 14px;
+  color: #7ec8e3;
+  text-shadow: 0 0 6px #2b8bb0, 0 0 2px #000;
+}
+
 .overlay {
   position: absolute;
   inset: 0;

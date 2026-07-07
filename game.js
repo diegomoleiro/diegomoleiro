@@ -7,6 +7,7 @@
   const scoreEl = document.getElementById('score');
   const ammoEl = document.getElementById('ammo');
   const powerupEl = document.getElementById('powerup');
+  const shieldInfoEl = document.getElementById('shieldInfo');
   const levelEl = document.getElementById('level');
   const livesEl = document.getElementById('lives');
   const startScreen = document.getElementById('startScreen');
@@ -22,6 +23,7 @@
   const quizOptions = document.getElementById('quizOptions');
   const quizFeedback = document.getElementById('quizFeedback');
   const quizExplanation = document.getElementById('quizExplanation');
+  const quizContinueBtn = document.getElementById('quizContinueBtn');
   const abilityScreen = document.getElementById('abilityScreen');
   const abilityCards = document.getElementById('abilityCards');
 
@@ -60,13 +62,17 @@
     tilt: 0,
     fireCooldown: 0,
     fireRate: 0.22,
-    lives: 3,
+    lives: 5,
+    maxLives: 10,
     invuln: 0,
     ammo: 30,
     maxAmmo: 30,
     slowTimer: 0,
     slowFx: 0,
     shotPattern: 'single',
+    shieldHp: 0,
+    shieldMax: 3,
+    plowShields: 0,
   };
 
   let score = 0;
@@ -75,7 +81,6 @@
   let enemies = [];        // crows
   let grasshoppers = [];   // agile pests
   let hearts = [];         // extra-life pickups
-  let gifts = [];          // mystery bonus-question pickups
   let powerups = [];       // 💥✈️🧨 combat bonus pickups
   let patches = [];        // side corn plots to harvest for ammo
   let particles = [];
@@ -86,12 +91,12 @@
   let enemyDir = 1;
   let enemyDropTimer = 0;
   let grasshopperSpawnTimer = 4;
-  let giftSpawnTimer = 18;
   let powerupSpawnTimer = 20;
   let activePowerUp = null;      // only 'rojao' persists; others fire instantly
   let powerupLabel = '';
   let powerupPersistent = false;
   let powerupLabelTimer = 0;
+  let plowAngle = 0;
   let elapsed = 0;
 
   let keys = { left: false, right: false, up: false, down: false, fire: false };
@@ -104,7 +109,7 @@
     {
       id: 'life', icon: '❤️', name: 'Vida Extra',
       desc: 'Ganhe +1 coração de vida.',
-      apply: () => { player.lives += 1; },
+      apply: () => { player.lives = Math.min(player.maxLives, player.lives + 1); },
     },
     {
       id: 'agility', icon: '⚡', name: 'Mais Agilidade',
@@ -128,6 +133,12 @@
     },
   ];
 
+  const PLOW_SHIELD_ABILITY = {
+    id: 'plowShield', icon: '🛡️', name: 'Escudo Arado',
+    desc: 'Adiciona um escudo giratório que rebate os tiros dos corvos (máx. 3).',
+    apply: () => { player.plowShields = Math.min(3, player.plowShields + 1); },
+  };
+
   function shotCost() {
     if (player.shotPattern === 'double') return 2;
     if (player.shotPattern === 'tripleStraight' || player.shotPattern === 'tripleDiagonal') return 3;
@@ -137,6 +148,7 @@
   function openAbilitySelection() {
     state = STATE.ABILITY;
     const pool = [...ABILITIES];
+    if (phase >= 5 && player.plowShields < 3) pool.push(PLOW_SHIELD_ABILITY);
     const first = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
     const second = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
     abilityCards.innerHTML = '';
@@ -688,12 +700,11 @@
     return picked;
   }
 
-  const quiz = { mode: 'lifeline', pool: [], index: 0, correct: 0 };
+  const quiz = { pool: [], index: 0, correct: 0 };
 
   function startLifelineQuiz() {
-    if (state === STATE.QUIZ && quiz.mode === 'lifeline') return;
+    if (state === STATE.QUIZ) return;
     state = STATE.QUIZ;
-    quiz.mode = 'lifeline';
     quiz.pool = sampleQuestions(gradeTier, 'normal', 5);
     quiz.index = 0;
     quiz.correct = 0;
@@ -702,25 +713,13 @@
     showQuizQuestion();
   }
 
-  function startGiftQuiz() {
-    state = STATE.QUIZ;
-    quiz.mode = 'gift';
-    quiz.pool = sampleQuestions(gradeTier, 'hard', 1);
-    quiz.index = 0;
-    quiz.correct = 0;
-    quizTitle.textContent = '🎁 Pergunta Bônus!';
-    quizScreen.classList.remove('hidden');
-    showQuizQuestion();
-  }
-
   function showQuizQuestion() {
     const q = quiz.pool[quiz.index];
-    quizProgress.textContent = quiz.mode === 'lifeline'
-      ? `Pergunta ${quiz.index + 1}/${quiz.pool.length} • Vidas ganhas: ${quiz.correct}`
-      : 'Acerte para destruir todos os corvos da tela!';
+    quizProgress.textContent = `Pergunta ${quiz.index + 1}/${quiz.pool.length} • Vidas ganhas: ${quiz.correct}`;
     quizQuestion.textContent = q.q;
     quizFeedback.textContent = '';
     quizExplanation.textContent = '';
+    quizContinueBtn.classList.add('hidden');
     quizOptions.innerHTML = '';
 
     const correctText = q.options[q.correct];
@@ -754,18 +753,17 @@
     }
     quizExplanation.textContent = q.explanation || '';
 
-    setTimeout(() => {
+    const isLast = quiz.index + 1 >= quiz.pool.length;
+    quizContinueBtn.textContent = isLast ? 'Ver resultado' : 'Continuar';
+    quizContinueBtn.classList.remove('hidden');
+    quizContinueBtn.onclick = () => {
       quiz.index += 1;
-      if (quiz.mode === 'lifeline') {
-        if (quiz.index < quiz.pool.length) {
-          showQuizQuestion();
-        } else {
-          finishLifelineQuiz();
-        }
+      if (quiz.index < quiz.pool.length) {
+        showQuizQuestion();
       } else {
-        finishGiftQuiz(isCorrect);
+        finishLifelineQuiz();
       }
-    }, isCorrect ? 1400 : 2800);
+    };
   }
 
   function finishLifelineQuiz() {
@@ -773,52 +771,32 @@
     quizQuestion.textContent = '';
     quizProgress.textContent = '';
     quizExplanation.textContent = '';
+    quizContinueBtn.classList.remove('hidden');
     if (quiz.correct > 0) {
       const livesWord = quiz.correct === 1 ? 'vida' : 'vidas';
       quizFeedback.textContent = `🎉 Você acertou ${quiz.correct}/5! Ganhou ${quiz.correct} ${livesWord} e a onda foi reiniciada.`;
-      player.lives = quiz.correct;
+      player.lives = Math.min(player.maxLives, quiz.correct);
       player.invuln = 1.5;
       player.ammo = player.maxAmmo;
       enemyBullets = [];
       bullets = [];
       buildWave();
-      setTimeout(() => {
+      quizContinueBtn.textContent = 'Continuar jogando';
+      quizContinueBtn.onclick = () => {
+        quizContinueBtn.classList.add('hidden');
         quizScreen.classList.add('hidden');
         state = STATE.PLAYING;
         updateHud();
-      }, 1800);
+      };
     } else {
       quizFeedback.textContent = '📉 Você não acertou nenhuma. Não foi dessa vez...';
-      setTimeout(() => {
+      quizContinueBtn.textContent = 'OK';
+      quizContinueBtn.onclick = () => {
+        quizContinueBtn.classList.add('hidden');
         quizScreen.classList.add('hidden');
         endGame();
-      }, 1800);
+      };
     }
-  }
-
-  function finishGiftQuiz(isCorrect) {
-    quizOptions.innerHTML = '';
-    quizQuestion.textContent = '';
-    quizProgress.textContent = '';
-    quizExplanation.textContent = '';
-    if (isCorrect) {
-      quizFeedback.textContent = '💥 Isso! Todos os corvos foram embora!';
-      for (const e of enemies) spawnExplosion(e.x + e.w / 2, e.y + e.h / 2, '#2b2b2b');
-      score += enemies.length * 10 * wave;
-      enemies = [];
-    } else {
-      quizFeedback.textContent = '💔 Resposta errada, você perdeu um coração...';
-      player.lives -= 1;
-    }
-    setTimeout(() => {
-      quizScreen.classList.add('hidden');
-      updateHud();
-      if (player.lives <= 0) {
-        startLifelineQuiz();
-      } else {
-        state = STATE.PLAYING;
-      }
-    }, 1800);
   }
 
   const WAVES_PER_PHASE = 5;
@@ -834,7 +812,8 @@
     player.x = W / 2 - player.w / 2;
     player.y = playerMaxY();
     player.tilt = 0;
-    player.lives = 3;
+    player.lives = 5;
+    player.maxLives = 10;
     player.invuln = 0;
     player.fireCooldown = 0;
     player.ammo = player.maxAmmo;
@@ -842,6 +821,8 @@
     player.slowFx = 0;
     player.speed = BASE_SPEED;
     player.shotPattern = 'single';
+    player.shieldHp = 0;
+    player.plowShields = 0;
   }
 
   // ---------- Corn field background (baked onto an offscreen canvas so the
@@ -927,6 +908,8 @@
 
   function buildWave() {
     enemies = [];
+    // the bubble shield unlocks after phase 3 and recharges fully every wave
+    player.shieldHp = phase >= 4 ? player.shieldMax : 0;
     // difficulty (count, speed, toughness) is tied only to the phase, so all
     // waves inside the same phase feel the same and the ramp-up only happens
     // when a new phase begins
@@ -992,16 +975,6 @@
     });
   }
 
-  function spawnGift() {
-    gifts.push({
-      x: Math.random() * (W - 60) + 30,
-      y: -30,
-      w: 26, h: 26,
-      speed: Math.random() * 20 + 35,
-      wobble: Math.random() * Math.PI * 2,
-    });
-  }
-
   function startGame() {
     score = 0;
     wave = 1;
@@ -1010,7 +983,6 @@
     enemyBullets = [];
     particles = [];
     hearts = [];
-    gifts = [];
     powerups = [];
     activePowerUp = null;
     powerupLabel = '';
@@ -1018,7 +990,6 @@
     powerupLabelTimer = 0;
     grasshoppers = [];
     grasshopperSpawnTimer = 4;
-    giftSpawnTimer = Math.random() * 8 + 16;
     powerupSpawnTimer = Math.random() * 10 + 14;
     resetPlayer();
     buildWave();
@@ -1043,10 +1014,18 @@
   function updateHud() {
     scoreEl.textContent = `Pontos: ${score}`;
     levelEl.textContent = `Fase ${phase} • Onda ${wave}`;
-    livesEl.textContent = 'Vidas: ' + '❤️'.repeat(Math.max(player.lives, 0));
+    livesEl.textContent = `Vidas: ❤️ ${Math.max(player.lives, 0)}/${player.maxLives}`;
     ammoEl.textContent = `🌽 ${player.ammo}/${player.maxAmmo}`;
     ammoEl.classList.toggle('empty', player.ammo === 0);
     powerupEl.textContent = powerupLabel;
+    if (player.shieldHp > 0 || player.plowShields > 0) {
+      const parts = [];
+      if (player.shieldHp > 0) parts.push(`🛡️ ${player.shieldHp}/${player.shieldMax}`);
+      if (player.plowShields > 0) parts.push(`🔄 x${player.plowShields}`);
+      shieldInfoEl.textContent = parts.join(' ');
+    } else {
+      shieldInfoEl.textContent = '';
+    }
   }
 
   // ---------- Input ----------
@@ -1142,6 +1121,24 @@
     } else {
       spawnKernelAt(cx, topY, 0);
     }
+  }
+
+  function plowShieldPositions() {
+    const list = [];
+    const n = player.plowShields;
+    if (n <= 0) return list;
+    const cx = player.x + player.w / 2, cy = player.y + player.h / 2;
+    const radius = player.w * 0.85;
+    for (let i = 0; i < n; i++) {
+      const angle = plowAngle + i * (Math.PI * 2 / n);
+      list.push({
+        x: cx + Math.cos(angle) * radius - 10,
+        y: cy + Math.sin(angle) * radius - 10,
+        w: 20, h: 20,
+        angle,
+      });
+    }
+    return list;
   }
 
   function spawnEnemyBullet(enemy) {
@@ -1250,24 +1247,30 @@
     enemyBullets.forEach(b => b.y += b.speed * dt);
     enemyBullets = enemyBullets.filter(b => b.y < H);
 
+    // plow shields: rotate around the harvester and reflect crow pecks back up
+    plowAngle += dt * 1.8;
+    if (player.plowShields > 0) {
+      const shields = plowShieldPositions();
+      for (const b of enemyBullets) {
+        if (b.dead) continue;
+        for (const s of shields) {
+          if (rectsOverlap(b, s)) {
+            b.dead = true;
+            spawnKernelAt(s.x + s.w / 2, s.y, 0, -550);
+            spawnExplosion(s.x + s.w / 2, s.y + s.h / 2, '#c9d3d8', 10);
+            break;
+          }
+        }
+      }
+      enemyBullets = enemyBullets.filter(b => !b.dead);
+    }
+
     // hearts (extra-life pickups)
     for (const h of hearts) {
       h.y += h.speed * dt;
       h.x += Math.sin(elapsed * 2 + h.wobble) * 18 * dt;
     }
     hearts = hearts.filter(h => h.y < H + 30);
-
-    // mystery gifts (bonus question pickups)
-    giftSpawnTimer -= dt;
-    if (giftSpawnTimer <= 0) {
-      spawnGift();
-      giftSpawnTimer = Math.random() * 15 + 22;
-    }
-    for (const g of gifts) {
-      g.y += g.speed * dt;
-      g.x += Math.sin(elapsed * 1.6 + g.wobble) * 14 * dt;
-    }
-    gifts = gifts.filter(g => g.y < H + 30);
 
     // combat bonus power-ups (💥✈️🧨)
     powerupSpawnTimer -= dt;
@@ -1416,22 +1419,11 @@
     for (const h of hearts) {
       if (rectsOverlap(player, h)) {
         h.dead = true;
-        player.lives += 1;
+        player.lives = Math.min(player.maxLives, player.lives + 1);
         spawnExplosion(h.x + h.w / 2, h.y + h.h / 2, '#ff6b81', 10);
       }
     }
     hearts = hearts.filter(h => !h.dead);
-
-    // pickups: harvester drives over a mystery gift -> bonus question
-    for (const g of gifts) {
-      if (rectsOverlap(player, g)) {
-        g.dead = true;
-        startGiftQuiz();
-        break;
-      }
-    }
-    gifts = gifts.filter(g => !g.dead);
-    if (state !== STATE.PLAYING) { updateHud(); return; }
 
     // pickups: harvester drives over a combat bonus -> activate it (replaces any previous one)
     for (const p of powerups) {
@@ -1465,12 +1457,17 @@
     }
     grasshoppers = grasshoppers.filter(g => g.alive);
 
-    // collisions: crow pecks vs harvester
+    // collisions: crow pecks vs harvester (absorbed by the bubble shield first, if any)
     if (player.invuln <= 0) {
       for (const b of enemyBullets) {
         if (rectsOverlap(b, player)) {
           b.dead = true;
-          hitPlayer();
+          if (player.shieldHp > 0) {
+            player.shieldHp -= 1;
+            spawnExplosion(player.x + player.w / 2, player.y + player.h / 2, '#7ec8e3', 10);
+          } else {
+            hitPlayer();
+          }
         }
       }
       enemyBullets = enemyBullets.filter(b => !b.dead);
@@ -1770,15 +1767,39 @@
     ctx.restore();
   }
 
-  function drawGift(g) {
+  function drawBubbleShield() {
+    if (player.shieldHp <= 0) return;
+    const cx = player.x + player.w / 2, cy = player.y + player.h / 2;
+    const r = Math.max(player.w, player.h) * 0.72;
     ctx.save();
-    const pulse = 1 + Math.sin(elapsed * 3 + g.wobble) * 0.08;
-    ctx.font = `${(g.h + 10) * pulse}px serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.shadowColor = '#ffb347';
-    ctx.shadowBlur = 14;
-    ctx.fillText('🎁', g.x + g.w / 2, g.y + g.h / 2);
+    ctx.globalAlpha = 0.2 + 0.15 * player.shieldHp;
+    ctx.strokeStyle = '#7ec8e3';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#7ec8e3';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawPlowShield(s) {
+    ctx.save();
+    ctx.translate(s.x + s.w / 2, s.y + s.h / 2);
+    ctx.rotate(s.angle + Math.PI / 2);
+    ctx.shadowColor = '#c9d3d8';
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = '#c9d3d8';
+    ctx.strokeStyle = '#5c6a6f';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, -10);
+    ctx.lineTo(8, 8);
+    ctx.lineTo(0, 4);
+    ctx.lineTo(-8, 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -1874,14 +1895,15 @@
         const glow = player.slowTimer > 0 ? '#9fd456' : '#bfeaff';
         drawHarvester(player.x, player.y, player.w, player.h, glow, player.tilt);
       }
+      drawBubbleShield();
+      for (const s of plowShieldPositions()) drawPlowShield(s);
 
       // crows + grasshoppers
       for (const e of enemies) drawCrow(e);
       for (const g of grasshoppers) drawGrasshopper(g);
 
-      // hearts + gifts + power-ups
+      // hearts + power-ups
       for (const h of hearts) drawHeart(h);
-      for (const g of gifts) drawGift(g);
       for (const p of powerups) drawPowerup(p);
 
       // bullets
