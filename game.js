@@ -65,8 +65,8 @@
     lives: 5,
     maxLives: 10,
     invuln: 0,
-    ammo: 30,
-    maxAmmo: 30,
+    ammo: 60,
+    maxAmmo: 60,
     slowTimer: 0,
     slowFx: 0,
     shotPattern: 'single',
@@ -145,8 +145,11 @@
     return 1;
   }
 
-  function openAbilitySelection() {
+  let abilityRestartMode = false; // true when the ability choice restarts the current wave instead of advancing to the next one
+
+  function openAbilitySelection(restart) {
     state = STATE.ABILITY;
+    abilityRestartMode = !!restart;
     const pool = [...ABILITIES];
     if (phase >= 5 && player.plowShields < 3) pool.push(PLOW_SHIELD_ABILITY);
     const first = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
@@ -166,7 +169,11 @@
     ab.apply();
     updateHud();
     abilityScreen.classList.add('hidden');
-    advanceWave();
+    if (abilityRestartMode) {
+      buildWave();
+    } else {
+      advanceWave();
+    }
     state = STATE.PLAYING;
   }
 
@@ -774,18 +781,17 @@
     quizContinueBtn.classList.remove('hidden');
     if (quiz.correct > 0) {
       const livesWord = quiz.correct === 1 ? 'vida' : 'vidas';
-      quizFeedback.textContent = `🎉 Você acertou ${quiz.correct}/5! Ganhou ${quiz.correct} ${livesWord} e a onda foi reiniciada.`;
+      quizFeedback.textContent = `🎉 Você acertou ${quiz.correct}/5! Ganhou ${quiz.correct} ${livesWord}. Escolha uma habilidade para recomeçar a onda!`;
       player.lives = Math.min(player.maxLives, quiz.correct);
       player.invuln = 1.5;
       player.ammo = player.maxAmmo;
       enemyBullets = [];
       bullets = [];
-      buildWave();
-      quizContinueBtn.textContent = 'Continuar jogando';
+      quizContinueBtn.textContent = 'Continuar';
       quizContinueBtn.onclick = () => {
         quizContinueBtn.classList.add('hidden');
         quizScreen.classList.add('hidden');
-        state = STATE.PLAYING;
+        openAbilitySelection(true);
         updateHud();
       };
     } else {
@@ -894,8 +900,10 @@
     patches = [
       { side: 'left', yFrac: 0.32, growth: 0, ripe: false },
       { side: 'left', yFrac: 0.68, growth: 0, ripe: false },
+      { side: 'left', yFrac: 0.88, growth: 0, ripe: false },
       { side: 'right', yFrac: 0.32, growth: 0, ripe: false },
       { side: 'right', yFrac: 0.68, growth: 0, ripe: false },
+      { side: 'right', yFrac: 0.88, growth: 0, ripe: false },
     ];
   }
 
