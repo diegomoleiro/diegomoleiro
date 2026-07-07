@@ -1382,6 +1382,22 @@
     }
     if (state !== STATE.PLAYING) { updateHud(); return; }
 
+    // corn kernels cancel out crow pecks when they collide midair
+    for (const b of bullets) {
+      if (b.dead) continue;
+      for (const e of enemyBullets) {
+        if (e.dead) continue;
+        if (rectsOverlap(b, e)) {
+          b.dead = true;
+          e.dead = true;
+          spawnExplosion((b.x + e.x) / 2, (b.y + e.y) / 2, '#ffe27a', 8);
+          break;
+        }
+      }
+    }
+    bullets = bullets.filter(b => !b.dead);
+    enemyBullets = enemyBullets.filter(e => !e.dead);
+
     // collisions: corn kernels vs crows and vs grasshoppers
     for (const b of bullets) {
       if (b.dead) continue;
