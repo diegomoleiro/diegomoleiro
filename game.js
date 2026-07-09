@@ -56,7 +56,7 @@
   let gradeTier = 'inicial';
 
   const player = {
-    w: 58, h: 44,
+    w: 29, h: 22,
     x: 0, y: 0,
     speed: BASE_SPEED,
     tilt: 0,
@@ -256,7 +256,7 @@
       type,
       x: Math.random() * (W - 60) + 30,
       y: -30,
-      w: 26, h: 26,
+      w: 13, h: 13,
       speed: Math.random() * 20 + 35,
       wobble: Math.random() * Math.PI * 2,
     });
@@ -932,12 +932,12 @@
 
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const baseX = marginX + c * spacingX + spacingX / 2 - 16;
+        const baseX = marginX + c * spacingX + spacingX / 2 - 8;
         enemies.push({
           baseX,
           x: baseX,
           y: startY + r * spacingY,
-          w: 32, h: 28,
+          w: 16, h: 14,
           alive: true,
           hp,
           shootCooldown: Math.random() * 3 + 1,
@@ -960,7 +960,7 @@
       hearts.push({
         x: Math.random() * (W - 50) + 25,
         y: -30 - i * 60,
-        w: 22, h: 20,
+        w: 11, h: 10,
         speed: Math.random() * 25 + 45,
         wobble: Math.random() * Math.PI * 2,
       });
