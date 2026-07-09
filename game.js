@@ -707,11 +707,12 @@
     return picked;
   }
 
-  const quiz = { pool: [], index: 0, correct: 0 };
+  const quiz = { mode: 'lifeline', pool: [], index: 0, correct: 0 };
 
   function startLifelineQuiz() {
     if (state === STATE.QUIZ) return;
     state = STATE.QUIZ;
+    quiz.mode = 'lifeline';
     quiz.pool = sampleQuestions(gradeTier, 'normal', 5);
     quiz.index = 0;
     quiz.correct = 0;
@@ -720,9 +721,22 @@
     showQuizQuestion();
   }
 
+  function startPhaseQuiz() {
+    state = STATE.QUIZ;
+    quiz.mode = 'phase';
+    quiz.pool = sampleQuestions(gradeTier, 'hard', 1);
+    quiz.index = 0;
+    quiz.correct = 0;
+    quizTitle.textContent = '⭐ Desafio da Fase!';
+    quizScreen.classList.remove('hidden');
+    showQuizQuestion();
+  }
+
   function showQuizQuestion() {
     const q = quiz.pool[quiz.index];
-    quizProgress.textContent = `Pergunta ${quiz.index + 1}/${quiz.pool.length} • Vidas ganhas: ${quiz.correct}`;
+    quizProgress.textContent = quiz.mode === 'phase'
+      ? 'Acerte a pergunta e escolha uma nova habilidade'
+      : `Pergunta ${quiz.index + 1}/${quiz.pool.length} • Vidas ganhas: ${quiz.correct}`;
     quizQuestion.textContent = q.q;
     quizFeedback.textContent = '';
     quizExplanation.textContent = '';
@@ -760,6 +774,13 @@
     }
     quizExplanation.textContent = q.explanation || '';
 
+    if (quiz.mode === 'phase') {
+      quizContinueBtn.textContent = 'Continuar';
+      quizContinueBtn.classList.remove('hidden');
+      quizContinueBtn.onclick = () => finishPhaseQuiz(isCorrect);
+      return;
+    }
+
     const isLast = quiz.index + 1 >= quiz.pool.length;
     quizContinueBtn.textContent = isLast ? 'Ver resultado' : 'Continuar';
     quizContinueBtn.classList.remove('hidden');
@@ -771,6 +792,33 @@
         finishLifelineQuiz();
       }
     };
+  }
+
+  function finishPhaseQuiz(isCorrect) {
+    quizOptions.innerHTML = '';
+    quizQuestion.textContent = '';
+    quizProgress.textContent = '';
+    quizExplanation.textContent = '';
+    quizContinueBtn.classList.remove('hidden');
+    if (isCorrect) {
+      quizFeedback.textContent = '🎉 Isso! Agora escolha sua nova habilidade.';
+      quizContinueBtn.textContent = 'Escolher habilidade';
+      quizContinueBtn.onclick = () => {
+        quizContinueBtn.classList.add('hidden');
+        quizScreen.classList.add('hidden');
+        openAbilitySelection(false);
+      };
+    } else {
+      quizFeedback.textContent = '📉 Não foi dessa vez! Sem habilidade nova nesta fase, mas o jogo continua.';
+      quizContinueBtn.textContent = 'Continuar jogando';
+      quizContinueBtn.onclick = () => {
+        quizContinueBtn.classList.add('hidden');
+        quizScreen.classList.add('hidden');
+        advanceWave();
+        state = STATE.PLAYING;
+        updateHud();
+      };
+    }
   }
 
   function finishLifelineQuiz() {
@@ -1518,9 +1566,14 @@
     }
     particles = particles.filter(p => p.age < p.life);
 
-    // wave clear -> choose an ability before the next wave begins
+    // wave clear -> a phase transition asks a hard question before the ability choice
     if (enemies.length === 0) {
-      openAbilitySelection();
+      const willChangePhase = phaseForWave(wave + 1) !== phase;
+      if (willChangePhase) {
+        startPhaseQuiz();
+      } else {
+        openAbilitySelection(false);
+      }
     }
 
     updateHud();
